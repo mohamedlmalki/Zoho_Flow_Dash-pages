@@ -1,24 +1,32 @@
 // functions/api/[[path]].ts
 import { Hono } from 'hono';
-import type { PagesFunction } from '@cloudflare/workers-types'; // Using the official types
+import { handle } from 'hono/cloudflare-pages'; // Use the specific Cloudflare Pages adapter
 
 import { storage } from '../../server/storage';
 import { insertEmailTemplateSchema, insertEmailCampaignSchema } from '../../shared/schema';
 import axios from 'axios';
 
-const app = new Hono().basePath('/api');
+// Define the environment type for better type-safety
+type Env = {
+  Bindings: {
+    ZOHO_ACCOUNTS: KVNamespace;
+  };
+};
+
+const app = new Hono<Env>().basePath('/api');
 
 // --- Helper functions for KV ---
 const readFlowAccounts = async (c: any): Promise<Record<string, string>> => {
   if (!c.env.ZOHO_ACCOUNTS) {
-    throw new Error("KV namespace 'ZOHO_ACCOUNTS' is not bound.");
+    throw new Error("KV namespace 'ZOHO_ACCOUNTS' is not bound or configured in your Cloudflare project.");
   }
+  // Use a default empty object if the key doesn't exist yet
   return (await c.env.ZOHO_ACCOUNTS.get('accounts', 'json')) || {};
 };
 
 const writeFlowAccounts = async (c: any, accounts: Record<string, string>): Promise<void> => {
     if (!c.env.ZOHO_ACCOUNTS) {
-    throw new Error("KV namespace 'ZOHO_ACCOUNTS' is not bound.");
+    throw new Error("KV namespace 'ZOHO_ACCOUNTS' is not bound or configured in your Cloudflare project.");
   }
   await c.env.ZOHO_ACCOUNTS.put('accounts', JSON.stringify(accounts));
 };
@@ -31,8 +39,8 @@ app.get('/flow-accounts', async (c) => {
     const accounts = await readFlowAccounts(c);
     return c.json(accounts);
   } catch (err: any) {
-    console.error(err.message);
-    return c.json({ message: "Server configuration error." }, 500);
+    console.error("Error reading from KV:", err);
+    return c.json({ message: "Server configuration error reading accounts.", error: err.message }, 500);
   }
 });
 
@@ -50,12 +58,11 @@ app.post('/flow-accounts', async (c) => {
     await writeFlowAccounts(c, accounts);
     return c.json(accounts, 201);
   } catch (err: any) {
-    console.error(err.message);
-    return c.json({ message: "Could not save account." }, 500);
+    console.error("Error writing to KV:", err);
+    return c.json({ message: "Could not save account.", error: err.message }, 500);
   }
 });
 
-// ... (Keep all your other routes like PUT, DELETE, /templates, /campaigns etc. exactly as they were)
 app.put('/flow-accounts/:name', async (c) => {
     const name = c.req.param('name');
     const { newName, url } = await c.req.json();
@@ -203,7 +210,5 @@ app.post('/test-email', async (c) => {
     }
 });
 
-// The onRequest export is the entry-point for all requests to your Function.
-export const onRequest: PagesFunction = (context) => {
-  return app.fetch(context.request, context.env, context);
-};
+// Use Hono's built-in Cloudflare Pages adapter
+export const onRequest = handle(app);
