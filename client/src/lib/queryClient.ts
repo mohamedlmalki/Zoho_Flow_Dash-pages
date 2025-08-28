@@ -12,13 +12,15 @@ class ApiError extends Error {
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
+    // Read the body once, regardless of format.
+    const errorBody = await res.text();
     let errorData;
     try {
-      // Try to parse the error response as JSON
-      errorData = await res.json();
+      // Try to parse it as JSON.
+      errorData = JSON.parse(errorBody);
     } catch (e) {
-      // If it's not JSON, use the text body
-      errorData = (await res.text()) || res.statusText;
+      // If parsing fails, use the raw text.
+      errorData = errorBody || res.statusText;
     }
     // Throw a custom error that includes the response data
     throw new ApiError(`${res.status}: ${JSON.stringify(errorData)}`, errorData);
