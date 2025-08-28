@@ -1,6 +1,6 @@
 // functions/api/[[path]].ts
 import { Hono } from 'hono';
-import type { PagesFunction } from '@cloudflare/workers-types';
+import type { PagesFunction } from '@cloudflare/workers-types'; // Using the official types
 
 import { storage } from '../../server/storage';
 import { insertEmailTemplateSchema, insertEmailCampaignSchema } from '../../shared/schema';
@@ -8,13 +8,18 @@ import axios from 'axios';
 
 const app = new Hono().basePath('/api');
 
-// --- Helper functions for KV (to be implemented fully later) ---
+// --- Helper functions for KV ---
 const readFlowAccounts = async (c: any): Promise<Record<string, string>> => {
-  // c.env.ZOHO_ACCOUNTS is how we'll access the KV store
-  return c.env.ZOHO_ACCOUNTS.get('accounts', 'json');
+  if (!c.env.ZOHO_ACCOUNTS) {
+    throw new Error("KV namespace 'ZOHO_ACCOUNTS' is not bound.");
+  }
+  return (await c.env.ZOHO_ACCOUNTS.get('accounts', 'json')) || {};
 };
 
 const writeFlowAccounts = async (c: any, accounts: Record<string, string>): Promise<void> => {
+    if (!c.env.ZOHO_ACCOUNTS) {
+    throw new Error("KV namespace 'ZOHO_ACCOUNTS' is not bound.");
+  }
   await c.env.ZOHO_ACCOUNTS.put('accounts', JSON.stringify(accounts));
 };
 
@@ -22,24 +27,35 @@ const writeFlowAccounts = async (c: any, accounts: Record<string, string>): Prom
 // --- Flow Accounts Routes ---
 
 app.get('/flow-accounts', async (c) => {
-  const accounts = await readFlowAccounts(c);
-  return c.json(accounts || {});
+  try {
+    const accounts = await readFlowAccounts(c);
+    return c.json(accounts);
+  } catch (err: any) {
+    console.error(err.message);
+    return c.json({ message: "Server configuration error." }, 500);
+  }
 });
 
 app.post('/flow-accounts', async (c) => {
-  const { name, url } = await c.req.json();
-  if (!name || !url) {
-    return c.json({ message: 'Name and URL are required' }, 400);
+  try {
+    const { name, url } = await c.req.json();
+    if (!name || !url) {
+      return c.json({ message: 'Name and URL are required' }, 400);
+    }
+    const accounts = await readFlowAccounts(c);
+    if (accounts[name]) {
+      return c.json({ message: 'Account name already exists' }, 409);
+    }
+    accounts[name] = url;
+    await writeFlowAccounts(c, accounts);
+    return c.json(accounts, 201);
+  } catch (err: any) {
+    console.error(err.message);
+    return c.json({ message: "Could not save account." }, 500);
   }
-  const accounts = (await readFlowAccounts(c)) || {};
-  if (accounts[name]) {
-    return c.json({ message: 'Account name already exists' }, 409);
-  }
-  accounts[name] = url;
-  await writeFlowAccounts(c, accounts);
-  return c.json(accounts, 201);
 });
 
+// ... (Keep all your other routes like PUT, DELETE, /templates, /campaigns etc. exactly as they were)
 app.put('/flow-accounts/:name', async (c) => {
     const name = c.req.param('name');
     const { newName, url } = await c.req.json();
@@ -48,7 +64,7 @@ app.put('/flow-accounts/:name', async (c) => {
         return c.json({ message: 'URL is required' }, 400);
     }
 
-    const accounts = (await readFlowAccounts(c)) || {};
+    const accounts = await readFlowAccounts(c);
     if (!accounts[name]) {
         return c.json({ message: 'Account not found' }, 404);
     }
@@ -69,7 +85,7 @@ app.put('/flow-accounts/:name', async (c) => {
 
 app.delete('/flow-accounts/:name', async (c) => {
     const name = c.req.param('name');
-    const accounts = (await readFlowAccounts(c)) || {};
+    const accounts = await readFlowAccounts(c);
     if (!accounts[name]) {
         return c.json({ message: 'Account not found' }, 404);
     }
@@ -80,7 +96,7 @@ app.delete('/flow-accounts/:name', async (c) => {
 
 app.post('/flow-accounts/test-connection', async (c) => {
     const { name } = await c.req.json();
-    const accounts = (await readFlowAccounts(c)) || {};
+    const accounts = await readFlowAccounts(c);
     const url = accounts[name];
 
     if (!url) {
@@ -163,7 +179,7 @@ app.post('/campaigns', async (c) => {
 app.post('/test-email', async (c) => {
     try {
         const { email, subject, htmlContent, flowAccount } = await c.req.json();
-        const flowAccounts = (await readFlowAccounts(c)) || {};
+        const flowAccounts = await readFlowAccounts(c);
         const zohoWebhookUrl = flowAccounts[flowAccount];
         if (!zohoWebhookUrl) {
             return c.json({ message: 'Invalid flow account selected.' }, 400);
@@ -187,7 +203,7 @@ app.post('/test-email', async (c) => {
     }
 });
 
-// This is the new, correct way to export the handler for Cloudflare Pages
-export const onRequest: PagesFunction = ({ request, env, params, waitUntil, next, data }) => {
-    return app.fetch(request, { ...env, ...data }, { waitUntil, passThroughOnException: next });
+// The onRequest export is the entry-point for all requests to your Function.
+export const onRequest: PagesFunction = (context) => {
+  return app.fetch(context.request, context.env, context);
 };
