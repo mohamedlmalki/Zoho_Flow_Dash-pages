@@ -31,7 +31,7 @@ const writeFlowAccounts = async (c: any, accounts: Record<string, string>): Prom
 };
 
 
-// --- Flow Accounts Routes ---
+// --- All of your API routes go here ---
 
 app.get('/flow-accounts', async (c) => {
   try {
@@ -180,7 +180,6 @@ app.post('/campaigns', async (c) => {
     }
 });
 
-// --- NEW CAMPAIGN ACTION ROUTES ---
 
 app.post('/campaigns/:id/start', async (c) => {
     const { id } = c.req.param();
@@ -189,11 +188,6 @@ app.post('/campaigns/:id/start', async (c) => {
         return c.json({ message: 'Campaign not found' }, 404);
     }
     const updated = await storage.updateEmailCampaign(id, { status: 'running' });
-    
-    // In a real-world serverless app, we would trigger a durable object or queue.
-    // For this example, we'll just update the status. The frontend will show "running".
-    // The actual email sending logic would need to be re-architected for serverless.
-
     return c.json(updated);
 });
 
@@ -245,4 +239,7 @@ app.post('/test-email', async (c) => {
     }
 });
 
-export const onRequest = handle(app);
+// The onRequest export is the entry-point for all requests to your Function.
+export const onRequest: PagesFunction<Env['Bindings']> = (context) => {
+  return app.fetch(context.request, context.env, context);
+};
