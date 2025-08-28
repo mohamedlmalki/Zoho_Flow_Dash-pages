@@ -1,3 +1,4 @@
+// client/src/pages/dashboard.tsx
 import { useState, useEffect, useMemo, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -294,122 +295,6 @@ export default function Dashboard() {
     }
   };
 
-  const sendSingleEmailMutation = useMutation({
-    mutationFn: (data: { campaignId: string, email: string }) =>
-      apiRequest("POST", `/api/campaigns/${data.campaignId}/send-email`, { email: data.email }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", currentCampaignId] });
-    },
-    onError: (error: any) => {
-      // Individual email errors can be handled here if needed
-      console.error("Failed to send an email:", error);
-    }
-  });
-
-
-  const createCampaignMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/campaigns", data);
-      return response.json();
-    },
-    onSuccess: (campaign) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-      setCurrentCampaignId(campaign.id);
-      toast({
-        title: "Campaign Created",
-        description: "Starting to send emails now. Keep this tab open.",
-      });
-
-      // Start the browser-side sending loop
-      startCampaignMutation.mutate(campaign.id);
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error Creating Campaign",
-        description: error.response?.message || error.message || "An unknown error occurred.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const startCampaignMutation = useMutation({
-    mutationFn: async (campaignId: string) => {
-      const response = await apiRequest(
-        "POST",
-        `/api/campaigns/${campaignId}/start`,
-      );
-      return response.json();
-    },
-    onSuccess: (campaign) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id] });
-      toast({
-        title: "Campaign Started",
-        description: "Email campaign is now running.",
-      });
-      // Start the browser sending process
-      processEmailsInBrowser(campaign);
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Error Starting Campaign",
-        description: error.message || "An unknown error occurred.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const processEmailsInBrowser = async (campaign: EmailCampaign) => {
-    for (const email of campaign.recipients) {
-        // Check for pausing/stopping before sending each email
-        const updatedCampaign = await queryClient.fetchQuery<EmailCampaign>({ queryKey: ["/api/campaigns", campaign.id]});
-        if (updatedCampaign?.status !== 'running') {
-            toast({ title: `Campaign ${updatedCampaign?.status}`});
-            break; // Exit the loop if campaign is paused or stopped
-        }
-
-        await sendSingleEmailMutation.mutateAsync({ campaignId: campaign.id, email });
-        
-        // Wait for the specified delay
-        await new Promise(resolve => setTimeout(resolve, campaign.delayBetweenEmails * 1000));
-    }
-  };
-
-
-  // Pause campaign mutation
-  const pauseCampaignMutation = useMutation({
-    mutationFn: async (campaignId: string) => {
-      const response = await apiRequest(
-        "POST",
-        `/api/campaigns/${campaignId}/pause`,
-      );
-      return response.json();
-    },
-    onSuccess: (_, campaignId) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
-      toast({
-        title: "Campaign Paused",
-        description: "Email campaign has been paused.",
-      });
-    },
-  });
-
-  // Stop campaign mutation
-  const stopCampaignMutation = useMutation({
-    mutationFn: async (campaignId: string) => {
-      const response = await apiRequest(
-        "POST",
-        `/api/campaigns/${campaignId}/stop`,
-      );
-      return response.json();
-    },
-    onSuccess: (_, campaignId) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
-      toast({
-        title: "Campaign Stopped",
-        description: "Email campaign has been stopped.",
-      });
-    },
-  });
 
   // Send test email mutation
   const sendTestEmailMutation = useMutation({
@@ -467,13 +352,120 @@ export default function Dashboard() {
     },
   });
 
+  const sendSingleEmailMutation = useMutation({
+    mutationFn: (data: { campaignId: string, email: string }) =>
+      apiRequest("POST", `/api/campaigns/${data.campaignId}/send-email`, { email: data.email }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", currentCampaignId] });
+    },
+    onError: (error: any) => {
+      console.error("Failed to send an email:", error);
+    }
+  });
+
+
+  const createCampaignMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("POST", "/api/campaigns", data);
+      return response.json();
+    },
+    onSuccess: (campaign) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      setCurrentCampaignId(campaign.id);
+      toast({
+        title: "Campaign Created",
+        description: "Starting to send emails now. Keep this tab open.",
+      });
+      startCampaignMutation.mutate(campaign.id);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error Creating Campaign",
+        description: error.response?.message || error.message || "An unknown error occurred.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const startCampaignMutation = useMutation({
+    mutationFn: async (campaignId: string) => {
+      const response = await apiRequest(
+        "POST",
+        `/api/campaigns/${campaignId}/start`,
+      );
+      return response.json();
+    },
+    onSuccess: (campaign) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id] });
+      toast({
+        title: "Campaign Started",
+        description: "Email campaign is now running.",
+      });
+      processEmailsInBrowser(campaign);
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error Starting Campaign",
+        description: error.message || "An unknown error occurred.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const processEmailsInBrowser = async (campaign: EmailCampaign) => {
+    for (const email of campaign.recipients) {
+        const updatedCampaign = await queryClient.fetchQuery<EmailCampaign>({ queryKey: ["/api/campaigns", campaign.id]});
+        if (updatedCampaign?.status !== 'running') {
+            toast({ title: `Campaign ${updatedCampaign?.status}`});
+            break;
+        }
+
+        await sendSingleEmailMutation.mutateAsync({ campaignId: campaign.id, email });
+        
+        await new Promise(resolve => setTimeout(resolve, campaign.delayBetweenEmails * 1000));
+    }
+  };
+
+
+  const pauseCampaignMutation = useMutation({
+    mutationFn: async (campaignId: string) => {
+      const response = await apiRequest(
+        "POST",
+        `/api/campaigns/${campaignId}/pause`,
+      );
+      return response.json();
+    },
+    onSuccess: (_, campaignId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      toast({
+        title: "Campaign Paused",
+        description: "Email campaign has been paused.",
+      });
+    },
+  });
+
+  const stopCampaignMutation = useMutation({
+    mutationFn: async (campaignId: string) => {
+      const response = await apiRequest(
+        "POST",
+        `/api/campaigns/${campaignId}/stop`,
+      );
+      return response.json();
+    },
+    onSuccess: (_, campaignId) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
+      toast({
+        title: "Campaign Stopped",
+        description: "Email campaign has been stopped.",
+      });
+    },
+  });
+
+
   const handleCreateCampaign = () => {
-    const currentForm = formStates[selectedAccount] || {};
-    if (
-      !selectedAccount ||
-      !currentForm.subject ||
-      !currentForm.recipients?.trim()
-    ) {
+    const { subject, recipients, htmlContent, delayBetweenEmails, batchSize } = currentFormData;
+
+    if (!selectedAccount || !subject || !recipients.trim()) {
       toast({
         title: "Missing Information",
         description: "Please fill in an account, subject, and recipients.",
@@ -482,7 +474,7 @@ export default function Dashboard() {
       return;
     }
 
-    const recipientList = currentForm.recipients
+    const recipientList = recipients
       .split("\n")
       .map((email) => email.trim())
       .filter((email) => email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
@@ -497,13 +489,13 @@ export default function Dashboard() {
     }
 
     createCampaignMutation.mutate({
-      name: `Campaign - ${currentForm.subject}`,
-      subject: currentForm.subject,
-      htmlContent: currentForm.htmlContent,
+      name: `Campaign - ${subject}`,
+      subject,
+      htmlContent,
       flowAccount: selectedAccount,
       recipients: recipientList,
-      delayBetweenEmails: currentForm.delayBetweenEmails,
-      batchSize: currentForm.batchSize,
+      delayBetweenEmails,
+      batchSize,
     });
   };
 
@@ -603,7 +595,6 @@ export default function Dashboard() {
     setImageAlign('center');
   };
 
-  // Calculate stats
   const recipientEmails = currentFormData.recipients
     .split("\n")
     .map((email) => email.trim())
@@ -639,7 +630,6 @@ export default function Dashboard() {
         );
     }
 
-    // Default and success state
     return (
         <div className="flex items-center space-x-2 bg-[hsl(142,76%,94%)] px-3 py-1 rounded-full">
             <CheckCircle className="text-[hsl(142,76%,36%)]" size={14} />
