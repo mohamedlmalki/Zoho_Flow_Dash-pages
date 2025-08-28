@@ -1,36 +1,29 @@
 // functions/api/[[path]].ts
 import { Hono } from 'hono';
-import { handle } from 'hono/vercel';
+import type { PagesFunction } from '@cloudflare/workers-types';
 
-import { storage } from '../../server/storage'; // We can still use the in-memory storage for now
+import { storage } from '../../server/storage';
 import { insertEmailTemplateSchema, insertEmailCampaignSchema } from '../../shared/schema';
 import axios from 'axios';
 
-// This configures the function to run on Cloudflare's Edge runtime
-export const config = {
-  runtime: 'edge',
-};
-
-// --- Helper functions to read/write flow accounts ---
-// In a later step, we will replace this with Cloudflare KV
-const readFlowAccounts = (c: any): Record<string, string> => {
-    // This is a placeholder. In a real scenario, you would fetch this from a persistent store.
-    // For now, we'll return a default value or an empty object.
-  return {};
-};
-
-const writeFlowAccounts = (c: any, accounts: Record<string, string>): void => {
-  // Placeholder for writing to a persistent store.
-};
-
-
 const app = new Hono().basePath('/api');
+
+// --- Helper functions for KV (to be implemented fully later) ---
+const readFlowAccounts = async (c: any): Promise<Record<string, string>> => {
+  // c.env.ZOHO_ACCOUNTS is how we'll access the KV store
+  return c.env.ZOHO_ACCOUNTS.get('accounts', 'json');
+};
+
+const writeFlowAccounts = async (c: any, accounts: Record<string, string>): Promise<void> => {
+  await c.env.ZOHO_ACCOUNTS.put('accounts', JSON.stringify(accounts));
+};
+
 
 // --- Flow Accounts Routes ---
 
-app.get('/flow-accounts', (c) => {
-  const accounts = readFlowAccounts(c);
-  return c.json(accounts);
+app.get('/flow-accounts', async (c) => {
+  const accounts = await readFlowAccounts(c);
+  return c.json(accounts || {});
 });
 
 app.post('/flow-accounts', async (c) => {
@@ -38,12 +31,12 @@ app.post('/flow-accounts', async (c) => {
   if (!name || !url) {
     return c.json({ message: 'Name and URL are required' }, 400);
   }
-  const accounts = readFlowAccounts(c);
+  const accounts = (await readFlowAccounts(c)) || {};
   if (accounts[name]) {
     return c.json({ message: 'Account name already exists' }, 409);
   }
   accounts[name] = url;
-  writeFlowAccounts(c, accounts);
+  await writeFlowAccounts(c, accounts);
   return c.json(accounts, 201);
 });
 
@@ -55,7 +48,7 @@ app.put('/flow-accounts/:name', async (c) => {
         return c.json({ message: 'URL is required' }, 400);
     }
 
-    const accounts = readFlowAccounts(c);
+    const accounts = (await readFlowAccounts(c)) || {};
     if (!accounts[name]) {
         return c.json({ message: 'Account not found' }, 404);
     }
@@ -70,24 +63,24 @@ app.put('/flow-accounts/:name', async (c) => {
     }
     
     accounts[finalName] = url;
-    writeFlowAccounts(c, accounts);
+    await writeFlowAccounts(c, accounts);
     return c.json(accounts);
 });
 
-app.delete('/flow-accounts/:name', (c) => {
+app.delete('/flow-accounts/:name', async (c) => {
     const name = c.req.param('name');
-    const accounts = readFlowAccounts(c);
+    const accounts = (await readFlowAccounts(c)) || {};
     if (!accounts[name]) {
         return c.json({ message: 'Account not found' }, 404);
     }
     delete accounts[name];
-    writeFlowAccounts(c, accounts);
+    await writeFlowAccounts(c, accounts);
     return c.json(accounts);
 });
 
 app.post('/flow-accounts/test-connection', async (c) => {
     const { name } = await c.req.json();
-    const accounts = readFlowAccounts(c);
+    const accounts = (await readFlowAccounts(c)) || {};
     const url = accounts[name];
 
     if (!url) {
@@ -165,14 +158,12 @@ app.post('/campaigns', async (c) => {
     }
 });
 
-// ... Add other campaign routes (start, pause, stop) here in a similar fashion
-
 // --- Test Email Route ---
 
 app.post('/test-email', async (c) => {
     try {
         const { email, subject, htmlContent, flowAccount } = await c.req.json();
-        const flowAccounts = readFlowAccounts(c);
+        const flowAccounts = (await readFlowAccounts(c)) || {};
         const zohoWebhookUrl = flowAccounts[flowAccount];
         if (!zohoWebhookUrl) {
             return c.json({ message: 'Invalid flow account selected.' }, 400);
@@ -196,4 +187,7 @@ app.post('/test-email', async (c) => {
     }
 });
 
-export default handle(app);
+// This is the new, correct way to export the handler for Cloudflare Pages
+export const onRequest: PagesFunction = ({ request, env, params, waitUntil, next, data }) => {
+    return app.fetch(request, { ...env, ...data }, { waitUntil, passThroughOnException: next });
+};
