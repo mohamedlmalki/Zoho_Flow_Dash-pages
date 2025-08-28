@@ -2,7 +2,6 @@
 import { Hono } from 'hono';
 import type { PagesFunction } from '@cloudflare/workers-types';
 
-import { storage } from '../../server/storage';
 import { insertEmailTemplateSchema, insertEmailCampaignSchema } from '../../shared/schema';
 import axios from 'axios';
 
@@ -62,41 +61,49 @@ app.post('/flow-accounts', async (c) => {
 });
 
 app.put('/flow-accounts/:name', async (c) => {
-    const name = c.req.param('name');
-    const { newName, url } = await c.req.json();
+    try {
+        const name = c.req.param('name');
+        const { newName, url } = await c.req.json();
 
-    if (!url) {
-        return c.json({ message: 'URL is required' }, 400);
-    }
-
-    const accounts = await readFlowAccounts(c);
-    if (!accounts[name]) {
-        return c.json({ message: 'Account not found' }, 404);
-    }
-
-    const finalName = newName || name;
-
-    if (name !== finalName) {
-        if (accounts[finalName]) {
-            return c.json({ message: `Account name "${finalName}" already exists` }, 409);
+        if (!url) {
+            return c.json({ message: 'URL is required' }, 400);
         }
-        delete accounts[name];
+
+        const accounts = await readFlowAccounts(c);
+        if (!accounts[name]) {
+            return c.json({ message: 'Account not found' }, 404);
+        }
+
+        const finalName = newName || name;
+
+        if (name !== finalName) {
+            if (accounts[finalName]) {
+                return c.json({ message: `Account name "${finalName}" already exists` }, 409);
+            }
+            delete accounts[name];
+        }
+        
+        accounts[finalName] = url;
+        await writeFlowAccounts(c, accounts);
+        return c.json(accounts);
+    } catch (err: any) {
+        return c.json({ message: "Could not update account.", error: err.message }, 500);
     }
-    
-    accounts[finalName] = url;
-    await writeFlowAccounts(c, accounts);
-    return c.json(accounts);
 });
 
 app.delete('/flow-accounts/:name', async (c) => {
-    const name = c.req.param('name');
-    const accounts = await readFlowAccounts(c);
-    if (!accounts[name]) {
-        return c.json({ message: 'Account not found' }, 404);
+    try {
+        const name = c.req.param('name');
+        const accounts = await readFlowAccounts(c);
+        if (!accounts[name]) {
+            return c.json({ message: 'Account not found' }, 404);
+        }
+        delete accounts[name];
+        await writeFlowAccounts(c, accounts);
+        return c.json(accounts);
+    } catch (err: any) {
+        return c.json({ message: "Could not delete account.", error: err.message }, 500);
     }
-    delete accounts[name];
-    await writeFlowAccounts(c, accounts);
-    return c.json(accounts);
 });
 
 app.post('/flow-accounts/test-connection', async (c) => {
@@ -123,7 +130,6 @@ app.post('/flow-accounts/test-connection', async (c) => {
     }
 });
 
-
 // --- Email Templates Routes ---
 
 app.get('/templates', async (c) => {
@@ -134,14 +140,14 @@ app.get('/templates', async (c) => {
 
 app.post('/templates', async (c) => {
     try {
-        const templateData = await c.req.json();
+        const templateData = insertEmailTemplateSchema.parse(await c.req.json());
         const id = `template-${crypto.randomUUID()}`;
         const newTemplate = { ...templateData, id };
 
         await c.env.CAMPAIGNS.put(id, JSON.stringify(newTemplate));
-        return c.json(newTemplate);
+        return c.json(newTemplate, 201);
     } catch (error: any) {
-        return c.json({ message: error.message }, 400);
+        return c.json({ message: "Invalid template data.", error: error }, 400);
     }
 });
 
@@ -154,19 +160,23 @@ app.get('/campaigns', async (c) => {
 });
 
 app.post('/campaigns', async (c) => {
-    const campaignData = await c.req.json();
-    const id = `campaign-${crypto.randomUUID()}`;
-    const newCampaign = {
-        ...campaignData,
-        id,
-        status: "draft",
-        processedCount: 0,
-        successCount: 0,
-        failedCount: 0,
-        createdAt: new Date().toISOString()
-    };
-    await c.env.CAMPAIGNS.put(id, JSON.stringify(newCampaign));
-    return c.json(newCampaign);
+    try {
+        const campaignData = insertEmailCampaignSchema.parse(await c.req.json());
+        const id = `campaign-${crypto.randomUUID()}`;
+        const newCampaign = {
+            ...campaignData,
+            id,
+            status: "draft",
+            processedCount: 0,
+            successCount: 0,
+            failedCount: 0,
+            createdAt: new Date().toISOString()
+        };
+        await c.env.CAMPAIGNS.put(id, JSON.stringify(newCampaign));
+        return c.json(newCampaign, 201);
+    } catch (error: any) {
+        return c.json({ message: "Invalid campaign data.", error: error }, 400);
+    }
 });
 
 app.get('/campaigns/:id', async (c) => {
@@ -212,12 +222,11 @@ app.post('/campaigns/:id/stop', async (c) => {
 });
 
 app.get('/campaigns/:id/results', async (c) => {
+    // This is still a simplified version for now.
     return c.json([]); 
 });
 
-
 // --- Test Email Route ---
-
 app.post('/test-email', async (c) => {
     try {
         const { email, subject, htmlContent, flowAccount } = await c.req.json();
@@ -231,20 +240,19 @@ app.post('/test-email', async (c) => {
             emailSubject: subject,
             emailDescription: htmlContent
         };
-        const response = await axios.post(zohoWebhookUrl, payload, {
+        await axios.post(zohoWebhookUrl, payload, {
             headers: { 'Content-Type': 'application/json' }
         });
         return c.json({ 
             message: 'Test email sent successfully!',
             timestamp: new Date().toLocaleTimeString(),
-            response: response.data
         });
     } catch (error: any) {
         return c.json({ message: 'Failed to send test email' }, 500);
     }
 });
 
-
+// The onRequest export is the entry-point for all requests to your Function.
 export const onRequest: PagesFunction<Env['Bindings']> = (context) => {
   return app.fetch(context.request, context.env, context);
 };
