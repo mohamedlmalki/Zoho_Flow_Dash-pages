@@ -1,6 +1,6 @@
 // functions/api/[[path]].ts
 import { Hono } from 'hono';
-import { handle } from 'hono/cloudflare-pages'; // Use the specific Cloudflare Pages adapter
+import type { PagesFunction } from '@cloudflare/workers-types';
 
 import { storage } from '../../server/storage';
 import { insertEmailTemplateSchema, insertEmailCampaignSchema } from '../../shared/schema';
@@ -20,7 +20,6 @@ const readFlowAccounts = async (c: any): Promise<Record<string, string>> => {
   if (!c.env.ZOHO_ACCOUNTS) {
     throw new Error("KV namespace 'ZOHO_ACCOUNTS' is not bound or configured in your Cloudflare project.");
   }
-  // Use a default empty object if the key doesn't exist yet
   return (await c.env.ZOHO_ACCOUNTS.get('accounts', 'json')) || {};
 };
 
@@ -181,6 +180,42 @@ app.post('/campaigns', async (c) => {
     }
 });
 
+// --- NEW CAMPAIGN ACTION ROUTES ---
+
+app.post('/campaigns/:id/start', async (c) => {
+    const { id } = c.req.param();
+    const campaign = await storage.getEmailCampaign(id);
+    if (!campaign) {
+        return c.json({ message: 'Campaign not found' }, 404);
+    }
+    const updated = await storage.updateEmailCampaign(id, { status: 'running' });
+    
+    // In a real-world serverless app, we would trigger a durable object or queue.
+    // For this example, we'll just update the status. The frontend will show "running".
+    // The actual email sending logic would need to be re-architected for serverless.
+
+    return c.json(updated);
+});
+
+app.post('/campaigns/:id/pause', async (c) => {
+    const { id } = c.req.param();
+    const updated = await storage.updateEmailCampaign(id, { status: 'paused' });
+     if (!updated) {
+        return c.json({ message: 'Campaign not found' }, 404);
+    }
+    return c.json(updated);
+});
+
+app.post('/campaigns/:id/stop', async (c) => {
+    const { id } = c.req.param();
+    const updated = await storage.updateEmailCampaign(id, { status: 'stopped' });
+     if (!updated) {
+        return c.json({ message: 'Campaign not found' }, 404);
+    }
+    return c.json(updated);
+});
+
+
 // --- Test Email Route ---
 
 app.post('/test-email', async (c) => {
@@ -210,5 +245,4 @@ app.post('/test-email', async (c) => {
     }
 });
 
-// Use Hono's built-in Cloudflare Pages adapter
 export const onRequest = handle(app);
