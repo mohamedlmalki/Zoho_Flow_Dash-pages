@@ -222,37 +222,49 @@ app.post('/campaigns/:id/stop', async (c) => {
 });
 
 app.get('/campaigns/:id/results', async (c) => {
-    // This is still a simplified version for now.
     return c.json([]); 
 });
 
-// --- Test Email Route ---
-app.post('/test-email', async (c) => {
+
+// --- NEW ROUTE for sending a single campaign email ---
+app.post('/campaigns/:id/send-email', async (c) => {
+    const { id } = c.req.param();
+    const { email } = await c.req.json();
+
+    const campaign: any = await c.env.CAMPAIGNS.get(id, 'json');
+    if (!campaign) {
+        return c.json({ message: 'Campaign not found' }, 404);
+    }
+
+    const accounts = await readFlowAccounts(c);
+    const webhookUrl = accounts[campaign.flowAccount];
+    if (!webhookUrl) {
+        return c.json({ message: 'Webhook URL not found' }, 500);
+    }
+
     try {
-        const { email, subject, htmlContent, flowAccount } = await c.req.json();
-        const flowAccounts = await readFlowAccounts(c);
-        const zohoWebhookUrl = flowAccounts[flowAccount];
-        if (!zohoWebhookUrl) {
-            return c.json({ message: 'Invalid flow account selected.' }, 400);
-        }
-        const payload = {
+        await axios.post(webhookUrl, {
             senderEmail: email,
-            emailSubject: subject,
-            emailDescription: htmlContent
-        };
-        await axios.post(zohoWebhookUrl, payload, {
-            headers: { 'Content-Type': 'application/json' }
+            emailSubject: campaign.subject,
+            emailDescription: campaign.htmlContent,
         });
-        return c.json({ 
-            message: 'Test email sent successfully!',
-            timestamp: new Date().toLocaleTimeString(),
-        });
-    } catch (error: any) {
-        return c.json({ message: 'Failed to send test email' }, 500);
+        
+        // Update campaign stats
+        campaign.processedCount += 1;
+        campaign.successCount += 1;
+        await c.env.CAMPAIGNS.put(id, JSON.stringify(campaign));
+
+        return c.json({ status: 'success' });
+    } catch (error) {
+        campaign.processedCount += 1;
+        campaign.failedCount += 1;
+        await c.env.CAMPAIGNS.put(id, JSON.stringify(campaign));
+        
+        return c.json({ status: 'failed' }, 500);
     }
 });
 
-// The onRequest export is the entry-point for all requests to your Function.
+
 export const onRequest: PagesFunction<Env['Bindings']> = (context) => {
   return app.fetch(context.request, context.env, context);
 };
