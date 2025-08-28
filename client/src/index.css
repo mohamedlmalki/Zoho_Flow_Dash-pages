@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(0, 0%, 98%);
+  --foreground: hsl(220, 26%, 14%);
+  --muted: hsl(214, 32%, 91%);
+  --muted-foreground: hsl(215, 16%, 47%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(220, 26%, 14%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(220, 26%, 14%);
+  --border: hsl(214, 32%, 91%);
+  --input: hsl(214, 32%, 91%);
+  --primary: hsl(217, 91%, 60%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(210, 40%, 98%);
+  --secondary-foreground: hsl(222.2, 84%, 4.9%);
+  --accent: hsl(210, 40%, 98%);
+  --accent-foreground: hsl(222.2, 84%, 4.9%);
+  --destructive: hsl(0, 84.2%, 60.2%);
+  --destructive-foreground: hsl(60, 9.1%, 97.8%);
+  --ring: hsl(217, 91%, 60%);
+  --radius: 0.5rem;
+  
+  /* Zoho Desk colors */
+  --zoho-blue: hsl(217, 91%, 60%);
+  --zoho-blue-light: hsl(217, 91%, 94%);
+  --zoho-success: hsl(142, 76%, 36%);
+  --zoho-success-light: hsl(142, 76%, 94%);
+  --zoho-warning: hsl(38, 92%, 50%);
+  --zoho-warning-light: hsl(38, 92%, 94%);
+  --zoho-error: hsl(0, 84%, 60%);
+  --zoho-error-light: hsl(0, 84%, 94%);
+  --zoho-gray-50: hsl(0, 0%, 98%);
+  --zoho-gray-100: hsl(214, 32%, 96%);
+  --zoho-gray-200: hsl(214, 32%, 91%);
+  --zoho-gray-300: hsl(213, 27%, 84%);
+  --zoho-gray-400: hsl(215, 20%, 65%);
+  --zoho-gray-500: hsl(220, 9%, 46%);
+  --zoho-gray-600: hsl(215, 25%, 35%);
+  --zoho-gray-700: hsl(215, 25%, 27%);
+  --zoho-gray-800: hsl(220, 39%, 18%);
+  --zoho-gray-900: hsl(220, 39%, 11%);
+}
+
+.dark {
+  --background: hsl(240, 10%, 3.9%);
+  --foreground: hsl(0, 0%, 98%);
+  --muted: hsl(240, 3.7%, 15.9%);
+  --muted-foreground: hsl(240, 5%, 64.9%);
+  --popover: hsl(240, 10%, 3.9%);
+  --popover-foreground: hsl(0, 0%, 98%);
+  --card: hsl(240, 10%, 3.9%);
+  --card-foreground: hsl(0, 0%, 98%);
+  --border: hsl(240, 3.7%, 15.9%);
+  --input: hsl(240, 3.7%, 15.9%);
+  --primary: hsl(217, 91%, 60%);
+  --primary-foreground: hsl(0, 0%, 100%);
+  --secondary: hsl(240, 3.7%, 15.9%);
+  --secondary-foreground: hsl(0, 0%, 98%);
+  --accent: hsl(240, 3.7%, 15.9%);
+  --accent-foreground: hsl(0, 0%, 98%);
+  --destructive: hsl(0, 62.8%, 30.6%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --ring: hsl(240, 4.9%, 83.9%);
+  --radius: 0.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .zoho-primary-btn {
+    @apply bg-[hsl(217,91%,60%)] hover:bg-[hsl(217,91%,50%)] text-white;
+  }
+  
+  .zoho-success-btn {
+    @apply bg-[hsl(142,76%,36%)] hover:bg-[hsl(142,76%,26%)] text-white;
+  }
+  
+  .zoho-warning-btn {
+    @apply bg-[hsl(38,92%,50%)] hover:bg-[hsl(38,92%,40%)] text-white;
+  }
+  
+  .zoho-error-btn {
+    @apply bg-[hsl(0,84%,60%)] hover:bg-[hsl(0,84%,50%)] text-white;
+  }
+}
