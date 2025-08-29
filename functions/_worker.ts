@@ -1,171 +1,13 @@
 // functions/_worker.ts
 import { Hono } from 'hono';
-import { handle } from 'hono/vercel';
 import { DBStorage } from './lib/db';
 import { insertEmailTemplateSchema, insertEmailCampaignSchema } from '../shared/schema';
 import axios from 'axios';
 
-export const config = {
-  runtime: 'edge',
-};
-
-const storage = new DBStorage();
-
-// --- API LOGIC (for user requests) ---
-const app = new Hono().basePath('/api');
-
-// ... (All your existing app.get, app.post, etc. routes go here)
-// --- Flow Accounts ---
-app.get('/flow-accounts', async (c) => {
-  const accounts = await storage.getFlowAccounts();
-  return c.json(accounts);
-});
-
-app.post('/flow-accounts', async (c) => {
-  const { name, url } = await c.req.json();
-  if (!name || !url) {
-    return c.json({ message: 'Name and URL are required' }, 400);
-  }
-  const accounts = await storage.getFlowAccounts();
-  if (accounts[name]) {
-    return c.json({ message: 'Account name already exists' }, 409);
-  }
-  await storage.createFlowAccount({ name, url });
-  const updatedAccounts = await storage.getFlowAccounts();
-  return c.json(updatedAccounts, 201);
-});
-
-app.put('/flow-accounts/:name', async (c) => {
-    const name = c.req.param('name');
-    const { newName, url } = await c.req.json();
-    if (!url) {
-        return c.json({ message: 'URL is required' }, 400);
-    }
-    await storage.updateFlowAccount(name, { newName, url });
-    const updatedAccounts = await storage.getFlowAccounts();
-    return c.json(updatedAccounts);
-});
-
-app.delete('/flow-accounts/:name', async (c) => {
-    const name = c.req.param('name');
-    await storage.deleteFlowAccount(name);
-    const updatedAccounts = await storage.getFlowAccounts();
-    return c.json(updatedAccounts);
-});
-
-app.post('/flow-accounts/test-connection', async (c) => {
-    const { name } = await c.req.json();
-    const accounts = await storage.getFlowAccounts();
-    const url = accounts[name];
-    if (!url) {
-        return c.json({ message: 'Account not found.' }, 404);
-    }
-    try {
-        const response = await axios.post(url, { test: 'connection test' }, { headers: { 'Content-Type': 'application/json' }, timeout: 10000 });
-        return c.json({ status: 'success', data: response.data });
-    } catch (error: any) {
-        const errorMessage = error.response ? error.response.data : error.message;
-        return c.json({ status: 'failed', data: errorMessage }, 500);
-    }
-});
-
-
-// --- Email Templates ---
-app.get('/templates', async (c) => {
-    const templates = await storage.getEmailTemplates();
-    return c.json(templates);
-});
-
-app.post('/templates', async (c) => {
-    const templateData = await c.req.json();
-    const template = insertEmailTemplateSchema.parse(templateData);
-    const created = await storage.createEmailTemplate(template);
-    return c.json(created);
-});
-
-
-// --- Email Campaigns ---
-app.get('/campaigns', async (c) => {
-    const campaigns = await storage.getEmailCampaigns();
-    return c.json(campaigns);
-});
-
-app.get('/campaigns/:id', async (c) => {
-    const id = c.req.param('id');
-    const campaign = await storage.getEmailCampaign(id);
-    if (!campaign) {
-        return c.json({ message: 'Campaign not found' }, 404);
-    }
-    return c.json(campaign);
-});
-
-app.post('/campaigns', async (c) => {
-    const campaignData = await c.req.json();
-    await storage.deleteCompletedCampaignsByAccount(campaignData.flowAccount);
-    const campaign = insertEmailCampaignSchema.parse(campaignData);
-    const created = await storage.createEmailCampaign(campaign);
-    return c.json(created);
-});
-
-// --- Campaign Actions ---
-app.post('/campaigns/:id/start', async (c) => {
-    const id = c.req.param('id');
-    const updated = await storage.updateEmailCampaign(id, { status: 'running' });
-    return c.json(updated);
-});
-
-app.post('/campaigns/:id/pause', async (c) => {
-    const id = c.req.param('id');
-    const updated = await storage.updateEmailCampaign(id, { status: 'paused' });
-    return c.json(updated);
-});
-
-app.post('/campaigns/:id/stop', async (c) => {
-    const id = c.req.param('id');
-    const updated = await storage.updateEmailCampaign(id, { status: 'stopped' });
-    return c.json(updated);
-});
-
-
-// --- Email Results ---
-app.get('/campaigns/:id/results', async (c) => {
-    const id = c.req.param('id');
-    const results = await storage.getEmailResults(id);
-    return c.json(results);
-});
-
-app.delete('/campaigns/:id/results', async (c) => {
-    const id = c.req.param('id');
-    await storage.clearEmailResults(id);
-    return c.json({ message: 'Results cleared successfully' });
-});
-
-
-// --- Test Email ---
-app.post('/test-email', async (c) => {
-    const { email, subject, htmlContent, flowAccount } = await c.req.json();
-    const flowAccounts = await storage.getFlowAccounts();
-    const zohoWebhookUrl = flowAccounts[flowAccount];
-
-    if (!zohoWebhookUrl) {
-        return c.json({ message: 'Invalid flow account selected.' }, 400);
-    }
-
-    try {
-        const payload = { senderEmail: email, emailSubject: subject, emailDescription: htmlContent };
-        const response = await axios.post(zohoWebhookUrl, payload, { headers: { 'Content-Type': 'application/json' } });
-        return c.json({
-            message: 'Test email sent successfully!',
-            timestamp: new Date().toLocaleTimeString(),
-            response: response.data
-        });
-    } catch (error: any) {
-        return c.json({ message: 'Failed to send test email' }, 500);
-    }
-});
-
-// --- CRON TRIGGER LOGIC (for background processing) ---
-async function processSingleEmail(campaignId: string) {
+// =================================================================
+// CAMPAIGN PROCESSING LOGIC (for the cron job)
+// =================================================================
+async function processSingleEmail(storage: DBStorage, campaignId: string) {
     const campaign = await storage.getEmailCampaign(campaignId);
 
     if (!campaign || campaign.status !== 'running' || campaign.processedCount >= campaign.recipients.length) {
@@ -202,38 +44,97 @@ async function processSingleEmail(campaignId: string) {
     }
 }
 
-const cron = {
-  // This is the main function for the Cron Trigger
-  async scheduled(event: ScheduledEvent, env: any, ctx: ExecutionContext): Promise<void> {
-    console.log("Cron job running at:", new Date().toISOString());
 
-    const runningCampaigns = await storage.getEmailCampaigns().then(campaigns => 
-      campaigns.filter(c => c.status === 'running')
-    );
+// =================================================================
+// API ROUTER LOGIC (for user requests)
+// =================================================================
+const app = new Hono().basePath('/api');
+const storage = new DBStorage();
 
-    if (runningCampaigns.length === 0) {
-      console.log("No running campaigns to process.");
-      return;
+// --- All your API routes ---
+app.get('/flow-accounts', async (c) => c.json(await storage.getFlowAccounts()));
+app.post('/flow-accounts', async (c) => {
+    const { name, url } = await c.req.json();
+    await storage.createFlowAccount({ name, url });
+    return c.json(await storage.getFlowAccounts(), 201);
+});
+// ... other routes
+app.put('/flow-accounts/:name', async (c) => {
+    const name = c.req.param('name');
+    const { newName, url } = await c.req.json();
+    await storage.updateFlowAccount(name, { newName, url });
+    return c.json(await storage.getFlowAccounts());
+});
+app.delete('/flow-accounts/:name', async (c) => {
+    const name = c.req.param('name');
+    await storage.deleteFlowAccount(name);
+    return c.json(await storage.getFlowAccounts());
+});
+app.post('/flow-accounts/test-connection', async (c) => {
+    const { name } = await c.req.json();
+    const accounts = await storage.getFlowAccounts();
+    const url = accounts[name];
+    if (!url) return c.json({ message: 'Account not found.' }, 404);
+    try {
+        const res = await axios.post(url, { test: 'connection test' }, { headers: { 'Content-Type': 'application/json' }, timeout: 10000 });
+        return c.json({ status: 'success', data: res.data });
+    } catch (e) {
+        return c.json({ status: 'failed', data: e.message }, 500);
     }
+});
+app.get('/templates', async (c) => c.json(await storage.getEmailTemplates()));
+app.post('/templates', async (c) => {
+    const data = await c.req.json();
+    const parsed = insertEmailTemplateSchema.parse(data);
+    return c.json(await storage.createEmailTemplate(parsed));
+});
+app.get('/campaigns', async (c) => c.json(await storage.getEmailCampaigns()));
+app.get('/campaigns/:id', async (c) => c.json(await storage.getEmailCampaign(c.req.param('id'))));
+app.post('/campaigns', async (c) => {
+    const data = await c.req.json();
+    await storage.deleteCompletedCampaignsByAccount(data.flowAccount);
+    const parsed = insertEmailCampaignSchema.parse(data);
+    return c.json(await storage.createEmailCampaign(parsed));
+});
+app.post('/campaigns/:id/start', async (c) => c.json(await storage.updateEmailCampaign(c.req.param('id'), { status: 'running' })));
+app.post('/campaigns/:id/pause', async (c) => c.json(await storage.updateEmailCampaign(c.req.param('id'), { status: 'paused' })));
+app.post('/campaigns/:id/stop', async (c) => c.json(await storage.updateEmailCampaign(c.req.param('id'), { status: 'stopped' })));
+app.get('/campaigns/:id/results', async (c) => c.json(await storage.getEmailResults(c.req.param('id'))));
+app.delete('/campaigns/:id/results', async (c) => c.json(await storage.clearEmailResults(c.req.param('id'))));
+app.post('/test-email', async (c) => {
+    const { email, subject, htmlContent, flowAccount } = await c.req.json();
+    const accounts = await storage.getFlowAccounts();
+    const url = accounts[flowAccount];
+    if (!url) return c.json({ message: 'Invalid flow account' }, 400);
+    const payload = { senderEmail: email, emailSubject: subject, emailDescription: htmlContent };
+    const res = await axios.post(url, payload, { headers: { 'Content-Type': 'application/json' } });
+    return c.json({ message: 'Test email sent', timestamp: new Date().toLocaleTimeString(), response: res.data });
+});
 
-    console.log(`Found ${runningCampaigns.length} running campaign(s).`);
 
-    // Process one batch for each running campaign
-    const processingPromises = runningCampaigns.map(async (campaign) => {
-      const batchSize = campaign.batchSize || 1; // Default to 1 if not set
-      console.log(`Processing batch of ${batchSize} for campaign ${campaign.id}`);
-      for (let i = 0; i < batchSize; i++) {
-        await processSingleEmail(campaign.id);
-      }
-    });
-
-    await Promise.all(processingPromises);
-    console.log("Cron job finished.");
-  },
-};
-
-// This exports BOTH the API handler and the Cron Trigger handler
+// =================================================================
+// CLOUDFLARE EXPORT
+// =================================================================
 export default {
-  fetch: handle(app),
-  scheduled: cron.scheduled,
+    // This handles all API requests (e.g., GET, POST)
+    fetch: app.fetch,
+
+    // This handles the scheduled Cron Trigger
+    async scheduled(event: ScheduledEvent, env: any, ctx: ExecutionContext): Promise<void> {
+        const cronStorage = new DBStorage();
+        const runningCampaigns = await cronStorage.getEmailCampaigns().then(campaigns => 
+          campaigns.filter(c => c.status === 'running')
+        );
+
+        if (runningCampaigns.length > 0) {
+            console.log(`Processing ${runningCampaigns.length} running campaign(s).`);
+            const processingPromises = runningCampaigns.map(async (campaign) => {
+              const batchSize = campaign.batchSize || 1;
+              for (let i = 0; i < batchSize; i++) {
+                await processSingleEmail(cronStorage, campaign.id);
+              }
+            });
+            await Promise.all(processingPromises);
+        }
+    }
 };
