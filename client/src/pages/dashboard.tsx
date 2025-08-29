@@ -140,12 +140,14 @@ export default function Dashboard() {
   const { data: currentCampaign } = useQuery<EmailCampaign>({
       queryKey: ["/api/campaigns", currentCampaignId],
       enabled: !!currentCampaignId,
+      refetchInterval: 2000, 
   });
   
   // Fetch campaign results
   const { data: campaignResults = [] } = useQuery<EmailResult[]>({
     queryKey: ["/api/campaigns", currentCampaignId, "results"],
     enabled: !!currentCampaignId,
+    refetchInterval: 2000,
   });
 
   // Find the latest campaign for each account to display in the selector
@@ -355,146 +357,92 @@ export default function Dashboard() {
   const sendSingleEmailMutation = useMutation({
     mutationFn: (data: { campaignId: string, email: string }) =>
       apiRequest("POST", `/api/campaigns/${data.campaignId}/send-email`, { email: data.email }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", currentCampaignId] });
-    },
-    onError: (error: any) => {
-      console.error("Failed to send an email:", error);
-    }
   });
 
-  // NEW: Robust email processing function
   const processEmailsInBrowser = async (campaign: EmailCampaign) => {
-    // This function will now only process emails that have not yet been sent
     const remainingRecipients = campaign.recipients.slice(campaign.processedCount);
 
-    console.log(`🚀 Starting loop for campaign ${campaign.id}. Total recipients: ${campaign.recipients.length}, Remaining: ${remainingRecipients.length}`);
-
-    for (const email of remainingRecipients) {
-        // Fetch the absolute latest status right before sending to check for pause/stop commands
-        const currentCampaignState = await queryClient.fetchQuery<EmailCampaign>({ queryKey: ["/api/campaigns", campaign.id] });
-        
-        console.log(`Looping... Current campaign status is: ${currentCampaignState?.status}`);
-        if (currentCampaignState?.status !== 'running') {
-            toast({ title: `Campaign ${currentCampaignState?.status}`});
-            console.log(`Campaign is no longer 'running'. Stopping browser loop.`);
-            break;
-        }
-
-        try {
-          console.log(`  -> Sending email to: ${email}`);
-          await sendSingleEmailMutation.mutateAsync({ campaignId: campaign.id, email });
-          
-          console.log(`  -> Waiting for ${currentCampaignState.delayBetweenEmails} second(s)...`);
-          await new Promise(resolve => setTimeout(resolve, currentCampaignState.delayBetweenEmails * 1000));
-        } catch (error) {
-          console.error(`Error sending email to ${email}. Stopping loop.`, error);
-          toast({
-            title: "Sending Error",
-            description: `Could not send email to ${email}. The campaign has been paused. Please check the logs.`,
-            variant: "destructive",
-          });
-          // Pause the campaign on error
-          pauseCampaignMutation.mutate(campaign.id);
-          break;
-        }
+    if (campaign.status !== 'running' || remainingRecipients.length === 0) {
+      return;
     }
-    console.log(`✅ Finished processing loop for campaign ${campaign.id}.`);
-    // Optional: refetch campaign data to show final status
-    queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id] });
+
+    const emailToSend = remainingRecipients[0];
+
+    try {
+      await sendSingleEmailMutation.mutateAsync({ campaignId: campaign.id, email: emailToSend });
+      // Invalidate queries after successful send to trigger the useEffect loop again
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "results"] });
+
+    } catch (error) {
+      console.error(`Error sending email to ${emailToSend}. Pausing campaign.`, error);
+      toast({
+        title: "Sending Error",
+        description: `Could not send email to ${emailToSend}. The campaign has been paused.`,
+        variant: "destructive",
+      });
+      pauseCampaignMutation.mutate(campaign.id);
+    }
   };
+  
+  // This useEffect now correctly drives the sending process
+  useEffect(() => {
+    if (currentCampaign && currentCampaign.status === 'running') {
+      const delay = currentCampaign.delayBetweenEmails * 1000;
+      const timer = setTimeout(() => {
+        processEmailsInBrowser(currentCampaign);
+      }, delay);
+      
+      // Cleanup timer if the component unmounts or the campaign changes
+      return () => clearTimeout(timer);
+    }
+  }, [currentCampaign]);
 
 
   const createCampaignMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const response = await apiRequest("POST", "/api/campaigns", data);
-      return response.json();
-    },
-    onSuccess: (campaign) => {
-      console.log("✅ Step 1: Campaign created successfully.", campaign);
+    mutationFn: (data: any) => apiRequest("POST", "/api/campaigns", data),
+    onSuccess: (newCampaign) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
-      setCurrentCampaignId(campaign.id);
-      toast({
-        title: "Campaign Created",
-        description: "Starting to send emails now. Keep this tab open.",
-      });
-      console.log("✅ Step 2: Triggering startCampaignMutation.");
-      startCampaignMutation.mutate(campaign.id);
+      setCurrentCampaignId(newCampaign.id);
+      toast({ title: "Campaign Created", description: "Starting campaign..." });
+      startCampaignMutation.mutate(newCampaign.id);
     },
     onError: (error: any) => {
       const errorMessage = error.response?.error ? JSON.stringify(error.response.error) : (error.response?.message || error.message || "An unknown error occurred.");
-      toast({
-        title: "Error Creating Campaign",
-        description: errorMessage,
-        variant: "destructive",
-      });
+      toast({ title: "Error Creating Campaign", description: errorMessage, variant: "destructive" });
     },
   });
 
   const startCampaignMutation = useMutation({
-    mutationFn: async (campaignId: string) => {
-      const response = await apiRequest(
-        "POST",
-        `/api/campaigns/${campaignId}/start`,
-      );
-      return response.json();
-    },
-    onSuccess: (campaign) => {
-      console.log("✅ Step 3: Campaign started successfully on the backend.", campaign);
-      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id] });
-      toast({
-        title: "Campaign Started",
-        description: "Email campaign is now running.",
-      });
-      console.log("✅ Step 4: Starting email processing loop in the browser.");
-      processEmailsInBrowser(campaign);
+    mutationFn: (campaignId: string) => apiRequest("POST", `/api/campaigns/${campaignId}/start`),
+    onSuccess: (startedCampaign) => {
+      queryClient.setQueryData(["/api/campaigns", startedCampaign.id], startedCampaign);
+      toast({ title: "Campaign Started", description: "Email campaign is now running." });
+      // The useEffect will now automatically pick this up and start sending
     },
     onError: (error: any) => {
-      console.error("❌ Error starting campaign:", error);
-      toast({
-        title: "Error Starting Campaign",
-        description: error.message || "An unknown error occurred.",
-        variant: "destructive",
-      });
+      toast({ title: "Error Starting Campaign", description: error.message || "An unknown error occurred.", variant: "destructive" });
     },
   });
 
   const pauseCampaignMutation = useMutation({
-    mutationFn: async (campaignId: string) => {
-      const response = await apiRequest(
-        "POST",
-        `/api/campaigns/${campaignId}/pause`,
-      );
-      return response.json();
-    },
+    mutationFn: (campaignId: string) => apiRequest("POST", `/api/campaigns/${campaignId}/pause`),
     onSuccess: (_, campaignId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
-      toast({
-        title: "Campaign Paused",
-        description: "Email campaign has been paused.",
-      });
+      toast({ title: "Campaign Paused", description: "Email campaign has been paused." });
     },
   });
 
   const stopCampaignMutation = useMutation({
-    mutationFn: async (campaignId: string) => {
-      const response = await apiRequest(
-        "POST",
-        `/api/campaigns/${campaignId}/stop`,
-      );
-      return response.json();
-    },
+    mutationFn: (campaignId: string) => apiRequest("POST", `/api/campaigns/${campaignId}/stop`),
     onSuccess: (_, campaignId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
-      toast({
-        title: "Campaign Stopped",
-        description: "Email campaign has been stopped.",
-      });
+      toast({ title: "Campaign Stopped", description: "Email campaign has been stopped." });
     },
   });
 
 
-  const handleCreateCampaign = () => {
+    const handleCreateCampaign = () => {
     const { subject, recipients, htmlContent, delayBetweenEmails, batchSize } = currentFormData;
 
     if (!selectedAccount || !subject || !recipients.trim()) {
@@ -528,10 +476,8 @@ export default function Dashboard() {
       recipients: recipientList,
       delayBetweenEmails,
       batchSize,
-      status: 'draft', // Add the status field here
+      status: 'draft',
     };
-
-    console.log(" LOG: Creating campaign with payload:", JSON.stringify(campaignPayload, null, 2));
 
     createCampaignMutation.mutate(campaignPayload);
   };
