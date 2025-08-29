@@ -20,20 +20,27 @@ const readFlowAccounts = async (c: any): Promise<Record<string, string>> => {
   return (await c.env.ZOHO_ACCOUNTS.get('accounts', 'json')) || {};
 };
 
-// --- Flow Accounts Routes (No changes needed here) ---
+const writeFlowAccounts = async (c: any, accounts: Record<string, string>): Promise<void> => {
+  if (!c.env.ZOHO_ACCOUNTS) throw new Error("KV namespace 'ZOHO_ACCOUNTS' is not bound.");
+  await c.env.ZOHO_ACCOUNTS.put('accounts', JSON.stringify(accounts));
+};
+
+// --- Flow Accounts Routes ---
 app.get('/flow-accounts', async (c) => {
     const accounts = await readFlowAccounts(c);
     return c.json(accounts);
 });
+
 app.post('/flow-accounts', async (c) => {
     const { name, url } = await c.req.json();
     if (!name || !url) return c.json({ message: 'Name and URL are required' }, 400);
     const accounts = await readFlowAccounts(c);
     if (accounts[name]) return c.json({ message: 'Account name already exists' }, 409);
     accounts[name] = url;
-    await c.env.ZOHO_ACCOUNTS.put('accounts', JSON.stringify(accounts));
+    await writeFlowAccounts(c, accounts);
     return c.json(accounts, 201);
 });
+
 app.put('/flow-accounts/:name', async (c) => {
     const name = c.req.param('name');
     const { newName, url } = await c.req.json();
@@ -46,17 +53,19 @@ app.put('/flow-accounts/:name', async (c) => {
         delete accounts[name];
     }
     accounts[finalName] = url;
-    await c.env.ZOHO_ACCOUNTS.put('accounts', JSON.stringify(accounts));
+    await writeFlowAccounts(c, accounts);
     return c.json(accounts);
 });
+
 app.delete('/flow-accounts/:name', async (c) => {
     const name = c.req.param('name');
     const accounts = await readFlowAccounts(c);
     if (!accounts[name]) return c.json({ message: 'Account not found' }, 404);
     delete accounts[name];
-    await c.env.ZOHO_ACCOUNTS.put('accounts', JSON.stringify(accounts));
+    await writeFlowAccounts(c, accounts);
     return c.json(accounts);
 });
+
 app.post('/flow-accounts/test-connection', async (c) => {
     const { name } = await c.req.json();
     const accounts = await readFlowAccounts(c);
@@ -71,12 +80,13 @@ app.post('/flow-accounts/test-connection', async (c) => {
 });
 
 
-// --- Email Templates Routes (No changes needed here) ---
+// --- Email Templates Routes ---
 app.get('/templates', async (c) => {
     const { keys } = await c.env.CAMPAIGNS.list({ prefix: "template-" });
     const templates = await Promise.all(keys.map(key => c.env.CAMPAIGNS.get(key.name, 'json')));
     return c.json(templates);
 });
+
 app.post('/templates', async (c) => {
     try {
         const templateData = insertEmailTemplateSchema.parse(await c.req.json());
@@ -118,7 +128,6 @@ app.get('/campaigns/:id', async (c) => {
     return c.json(campaign);
 });
 
-// FIXED: Added missing status update routes
 const statusUpdateHandler = async (c: any, status: 'running' | 'paused' | 'stopped') => {
     const { id } = c.req.param();
     let campaign: any = await c.env.CAMPAIGNS.get(id, 'json');
@@ -169,7 +178,7 @@ app.post('/campaigns/:id/send-email', async (c) => {
     return c.json({ status: result.status });
 });
 
-// Test email route (no changes needed)
+// Test email route
 app.post('/api/test-email', async (c) => {
     const { email, subject, htmlContent, flowAccount } = await c.req.json();
     const accounts = await readFlowAccounts(c);
