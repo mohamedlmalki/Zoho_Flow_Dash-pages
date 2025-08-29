@@ -10,32 +10,37 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// --- API Routes ---
-app.get('/api/flow-accounts', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
-    return c.json(await storage.getFlowAccounts());
+// Middleware to create and attach the storage instance for each request
+app.use('/api/*', async (c, next) => {
+  const storage = new DBStorage(c.env.DATABASE_URL);
+  c.set('storage', storage);
+  await next();
 });
+
+// --- API Routes ---
+app.get('/api/flow-accounts', async (c) => c.json(await c.get('storage').getFlowAccounts()));
 app.post('/api/flow-accounts', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
+    const storage = c.get('storage');
     const { name, url } = await c.req.json();
     await storage.createFlowAccount({ name, url });
     return c.json(await storage.getFlowAccounts(), 201);
 });
+// ... all other app.get/post/put/delete routes
 app.put('/api/flow-accounts/:name', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
+    const storage = c.get('storage');
     const name = c.req.param('name');
     const { newName, url } = await c.req.json();
     await storage.updateFlowAccount(name, { newName, url });
     return c.json(await storage.getFlowAccounts());
 });
 app.delete('/api/flow-accounts/:name', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
+    const storage = c.get('storage');
     const name = c.req.param('name');
     await storage.deleteFlowAccount(name);
     return c.json(await storage.getFlowAccounts());
 });
 app.post('/api/flow-accounts/test-connection', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
+    const storage = c.get('storage');
     const { name } = await c.req.json();
     const accounts = await storage.getFlowAccounts();
     const url = accounts[name];
@@ -47,53 +52,29 @@ app.post('/api/flow-accounts/test-connection', async (c) => {
         return c.json({ status: 'failed', data: e.message }, 500);
     }
 });
-app.get('/api/templates', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
-    return c.json(await storage.getEmailTemplates());
-});
+app.get('/api/templates', async (c) => c.json(await c.get('storage').getEmailTemplates()));
 app.post('/api/templates', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
+    const storage = c.get('storage');
     const data = await c.req.json();
     const parsed = insertEmailTemplateSchema.parse(data);
     return c.json(await storage.createEmailTemplate(parsed));
 });
-app.get('/api/campaigns', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
-    return c.json(await storage.getEmailCampaigns());
-});
-app.get('/api/campaigns/:id', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
-    return c.json(await storage.getEmailCampaign(c.req.param('id')));
-});
+app.get('/api/campaigns', async (c) => c.json(await c.get('storage').getEmailCampaigns()));
+app.get('/api/campaigns/:id', async (c) => c.json(await c.get('storage').getEmailCampaign(c.req.param('id'))));
 app.post('/api/campaigns', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
+    const storage = c.get('storage');
     const data = await c.req.json();
     await storage.deleteCompletedCampaignsByAccount(data.flowAccount);
     const parsed = insertEmailCampaignSchema.parse(data);
     return c.json(await storage.createEmailCampaign(parsed));
 });
-app.post('/api/campaigns/:id/start', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
-    return c.json(await storage.updateEmailCampaign(c.req.param('id'), { status: 'running' }));
-});
-app.post('/api/campaigns/:id/pause', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
-    return c.json(await storage.updateEmailCampaign(c.req.param('id'), { status: 'paused' }));
-});
-app.post('/api/campaigns/:id/stop', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
-    return c.json(await storage.updateEmailCampaign(c.req.param('id'), { status: 'stopped' }));
-});
-app.get('/api/campaigns/:id/results', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
-    return c.json(await storage.getEmailResults(c.req.param('id')));
-});
-app.delete('/api/campaigns/:id/results', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
-    return c.json(await storage.clearEmailResults(c.req.param('id')));
-});
+app.post('/api/campaigns/:id/start', async (c) => c.json(await c.get('storage').updateEmailCampaign(c.req.param('id'), { status: 'running' })));
+app.post('/api/campaigns/:id/pause', async (c) => c.json(await c.get('storage').updateEmailCampaign(c.req.param('id'), { status: 'paused' })));
+app.post('/api/campaigns/:id/stop', async (c) => c.json(await c.get('storage').updateEmailCampaign(c.req.param('id'), { status: 'stopped' })));
+app.get('/api/campaigns/:id/results', async (c) => c.json(await c.get('storage').getEmailResults(c.req.param('id'))));
+app.delete('/api/campaigns/:id/results', async (c) => c.json(await c.get('storage').clearEmailResults(c.req.param('id'))));
 app.post('/api/test-email', async (c) => {
-    const storage = new DBStorage(c.env.DATABASE_URL);
+    const storage = c.get('storage');
     const { email, subject, htmlContent, flowAccount } = await c.req.json();
     const accounts = await storage.getFlowAccounts();
     const url = accounts[flowAccount];
@@ -103,8 +84,7 @@ app.post('/api/test-email', async (c) => {
     return c.json({ message: 'Test email sent', timestamp: new Date().toLocaleTimeString(), response: res.data });
 });
 
-
-// ... (scheduled function remains the same) ...
+// ... scheduled function logic ...
 async function processSingleEmail(storage: DBStorage, campaignId: string) {
     const campaign = await storage.getEmailCampaign(campaignId);
     if (!campaign || campaign.status !== 'running' || campaign.processedCount >= campaign.recipients.length) {
@@ -137,12 +117,11 @@ async function processSingleEmail(storage: DBStorage, campaignId: string) {
     }
 }
 
-
 export default {
     fetch: app.fetch,
     async scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext): Promise<void> {
         const storage = new DBStorage(env.DATABASE_URL);
-        const runningCampaigns = await storage.getEmailCampaigns().then(campaigns => 
+        const runningCampaigns = await storage.getEmailCampaigns().then(campaigns =>
           campaigns.filter(c => c.status === 'running')
         );
 

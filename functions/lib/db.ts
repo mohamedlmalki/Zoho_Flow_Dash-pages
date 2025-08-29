@@ -16,7 +16,6 @@ export class DBStorage implements IStorage {
         this.db = drizzle(sql, { schema });
     }
 
-    // All database logic...
     async getUser(id: string) { return undefined; }
     async getUserByUsername(username: string) { return undefined; }
     async createUser(user: schema.InsertUser) {
