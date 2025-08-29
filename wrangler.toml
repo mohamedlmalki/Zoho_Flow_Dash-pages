@@ -2,5 +2,5 @@
 name = "zoho-flow-dash"
 pages_build_output_dir = "dist/public"
 
-[[triggers]]
+[triggers]
 crons = ["* * * * *"] # This means "run every minute"
