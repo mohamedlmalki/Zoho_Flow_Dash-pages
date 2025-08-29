@@ -370,12 +370,14 @@ export default function Dashboard() {
       return response.json();
     },
     onSuccess: (campaign) => {
+      console.log("✅ Step 1: Campaign created successfully.", campaign);
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       setCurrentCampaignId(campaign.id);
       toast({
         title: "Campaign Created",
         description: "Starting to send emails now. Keep this tab open.",
       });
+      console.log("✅ Step 2: Triggering startCampaignMutation.");
       startCampaignMutation.mutate(campaign.id);
     },
     onError: (error: any) => {
@@ -397,14 +399,17 @@ export default function Dashboard() {
       return response.json();
     },
     onSuccess: (campaign) => {
+      console.log("✅ Step 3: Campaign started successfully on the backend.", campaign);
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id] });
       toast({
         title: "Campaign Started",
         description: "Email campaign is now running.",
       });
+      console.log("✅ Step 4: Starting email processing loop in the browser.");
       processEmailsInBrowser(campaign);
     },
     onError: (error: any) => {
+      console.error("❌ Error starting campaign:", error);
       toast({
         title: "Error Starting Campaign",
         description: error.message || "An unknown error occurred.",
@@ -414,17 +419,24 @@ export default function Dashboard() {
   });
 
   const processEmailsInBrowser = async (campaign: EmailCampaign) => {
+    console.log(`🚀 Starting loop for campaign ${campaign.id} with ${campaign.recipients.length} emails.`);
     for (const email of campaign.recipients) {
         const updatedCampaign = await queryClient.fetchQuery<EmailCampaign>({ queryKey: ["/api/campaigns", campaign.id]});
+        
+        console.log(`Looping... Current campaign status is: ${updatedCampaign?.status}`);
         if (updatedCampaign?.status !== 'running') {
             toast({ title: `Campaign ${updatedCampaign?.status}`});
+            console.log(`Campaign is no longer running. Stopping loop.`);
             break;
         }
 
+        console.log(`  -> Sending email to: ${email}`);
         await sendSingleEmailMutation.mutateAsync({ campaignId: campaign.id, email });
         
+        console.log(`  -> Waiting for ${campaign.delayBetweenEmails} second(s)...`);
         await new Promise(resolve => setTimeout(resolve, campaign.delayBetweenEmails * 1000));
     }
+    console.log(`✅ Finished processing loop for campaign ${campaign.id}.`);
   };
 
 
@@ -500,7 +512,7 @@ export default function Dashboard() {
       status: 'draft', // Add the status field here
     };
 
-    console.log("Creating campaign with payload:", JSON.stringify(campaignPayload, null, 2));
+    console.log(" LOG: Creating campaign with payload:", JSON.stringify(campaignPayload, null, 2));
 
     createCampaignMutation.mutate(campaignPayload);
   };
