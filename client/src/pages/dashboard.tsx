@@ -209,7 +209,10 @@ export default function Dashboard() {
   });
   
     const sendTestEmailMutation = useMutation({
-        mutationFn: (data: any) => apiRequest('POST', '/api/test-email', data),
+        mutationFn: async (data: any) => {
+            const response = await apiRequest('POST', '/api/test-email', data);
+            return response.json();
+        },
         onSuccess: () => {
             toast({
                 title: 'Test Email Sent',
@@ -226,8 +229,10 @@ export default function Dashboard() {
     });
 
     const clearResultsMutation = useMutation({
-        mutationFn: (campaignId: string) =>
-            apiRequest('DELETE', `/api/campaigns/${campaignId}/results`),
+        mutationFn: async (campaignId: string) => {
+            const response = await apiRequest('DELETE', `/api/campaigns/${campaignId}/results`);
+            return response.json();
+        },
         onSuccess: (_, campaignId) => {
             queryClient.invalidateQueries({ queryKey: ['/api/campaigns', campaignId, 'results'] });
             toast({
@@ -245,7 +250,10 @@ export default function Dashboard() {
     });
 	
     const saveTemplateMutation = useMutation({
-        mutationFn: (data: any) => apiRequest('POST', '/api/templates', data),
+        mutationFn: async (data: any) => {
+            const response = await apiRequest('POST', '/api/templates', data);
+            return response.json();
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['/api/templates'] });
             toast({
@@ -263,7 +271,10 @@ export default function Dashboard() {
     });
 
     const addAccountMutation = useMutation({
-        mutationFn: (data: any) => apiRequest('POST', '/api/flow-accounts', data),
+        mutationFn: async (data: any) => {
+            const response = await apiRequest('POST', '/api/flow-accounts', data);
+            return response.json();
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['/api/flow-accounts'] });
             setIsAccountModalOpen(false);
@@ -284,8 +295,10 @@ export default function Dashboard() {
     });
 
     const editAccountMutation = useMutation({
-        mutationFn: (data: any) =>
-            apiRequest('PUT', `/api/flow-accounts/${editingAccount?.name}`, data),
+        mutationFn: async (data: any) => {
+            const response = await apiRequest('PUT', `/api/flow-accounts/${editingAccount?.name}`, data);
+            return response.json();
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['/api/flow-accounts'] });
             setIsAccountModalOpen(false);
@@ -307,8 +320,10 @@ export default function Dashboard() {
     });
 
     const deleteAccountMutation = useMutation({
-        mutationFn: (name: string) =>
-            apiRequest('DELETE', `/api/flow-accounts/${name}`),
+        mutationFn: async (name: string) => {
+            const response = await apiRequest('DELETE', `/api/flow-accounts/${name}`);
+            return response.json();
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['/api/flow-accounts'] });
             toast({
@@ -381,7 +396,10 @@ export default function Dashboard() {
     }, [currentCampaign]);
 
     const createCampaignMutation = useMutation({
-        mutationFn: (data: any) => apiRequest("POST", "/api/campaigns", data),
+        mutationFn: async (data: any) => {
+            const response = await apiRequest("POST", "/api/campaigns", data);
+            return response.json();
+        },
         onSuccess: (newCampaign) => {
             queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
             setCurrentCampaignId(newCampaign.id);
@@ -395,7 +413,10 @@ export default function Dashboard() {
     });
 
     const startCampaignMutation = useMutation({
-        mutationFn: (campaignId: string) => apiRequest("POST", `/api/campaigns/${campaignId}/start`),
+        mutationFn: async (campaignId: string) => {
+            const response = await apiRequest("POST", `/api/campaigns/${campaignId}/start`);
+            return response.json();
+        },
         onSuccess: (startedCampaign) => {
             queryClient.setQueryData(["/api/campaigns", startedCampaign.id], startedCampaign);
             toast({ title: "Campaign Started", description: "Email campaign is now running." });
@@ -406,7 +427,10 @@ export default function Dashboard() {
     });
 
     const pauseCampaignMutation = useMutation({
-        mutationFn: (campaignId: string) => apiRequest("POST", `/api/campaigns/${campaignId}/pause`),
+        mutationFn: async (campaignId: string) => {
+            const response = await apiRequest("POST", `/api/campaigns/${campaignId}/pause`);
+            return response.json();
+        },
         onSuccess: (_, campaignId) => {
             queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
             toast({ title: "Campaign Paused", description: "Email campaign has been paused." });
@@ -414,7 +438,10 @@ export default function Dashboard() {
     });
 
     const stopCampaignMutation = useMutation({
-        mutationFn: (campaignId: string) => apiRequest("POST", `/api/campaigns/${campaignId}/stop`),
+        mutationFn: async (campaignId: string) => {
+            const response = await apiRequest("POST", `/api/campaigns/${campaignId}/stop`);
+            return response.json();
+        },
         onSuccess: (_, campaignId) => {
             queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaignId] });
             toast({ title: "Campaign Stopped", description: "Email campaign has been stopped." });
@@ -422,8 +449,10 @@ export default function Dashboard() {
     });
 
     const sendSingleEmailMutation = useMutation({
-        mutationFn: (data: { campaignId: string, email: string }) =>
-            apiRequest("POST", `/api/campaigns/${data.campaignId}/send-email`, { email: data.email }),
+        mutationFn: async (data: { campaignId: string, email: string }) => {
+            const response = await apiRequest("POST", `/api/campaigns/${data.campaignId}/send-email`, { email: data.email });
+            return response.json();
+        },
     });
 
     const handleCreateCampaign = () => {
