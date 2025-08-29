@@ -198,14 +198,177 @@ export default function Dashboard() {
     queryKey: ["/api/templates"],
   });
 
-  // ... (Account management mutations remain the same) ...
+  const accountMutationOptions = {
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/flow-accounts"] });
+      setIsAccountModalOpen(false);
+      setEditingAccount(null);
+      setAccountName("");
+      setAccountUrl("");
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "An error occurred.",
+        variant: "destructive",
+      });
+    },
+  };
+
+  const addAccountMutation = useMutation({
+    mutationFn: (newAccount: { name: string; url: string }) =>
+      apiRequest("POST", "/api/flow-accounts", newAccount),
+    ...accountMutationOptions,
+    onSuccess: (...args) => {
+      accountMutationOptions.onSuccess(...args);
+      toast({ title: "Success", description: "Account added successfully." });
+    },
+  });
+
+  const editAccountMutation = useMutation({
+    mutationFn: (updatedAccount: { oldName: string; newName: string; url: string }) =>
+      apiRequest("PUT", `/api/flow-accounts/${updatedAccount.oldName}`, {
+        newName: updatedAccount.newName,
+        url: updatedAccount.url,
+      }),
+    ...accountMutationOptions,
+    onSuccess: (...args) => {
+      accountMutationOptions.onSuccess(...args);
+      toast({ title: "Success", description: "Account updated successfully." });
+    },
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: (name: string) => apiRequest("DELETE", `/api/flow-accounts/${name}`),
+    onSuccess: (_, deletedName) => {
+        queryClient.invalidateQueries({ queryKey: ["/api/flow-accounts"] }).then(() => {
+            if (selectedAccount === deletedName) {
+                const remainingAccounts = Object.keys(flowAccounts).filter(name => name !== deletedName);
+                if (remainingAccounts.length > 0) {
+                    setSelectedAccount(remainingAccounts[0]);
+                } else {
+                    setSelectedAccount("");
+                }
+            }
+        });
+        toast({ title: "Success", description: "Account deleted successfully." });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error.message || "An error occurred.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const testConnectionMutation = useMutation({
+    mutationFn: async (name: string) => {
+        setConnectionStatuses(prev => ({ ...prev, [name]: 'testing' }));
+        const response = await apiRequest("POST", "/api/flow-accounts/test-connection", { name });
+        return { name, data: await response.json() };
+    },
+    onSuccess: ({ name, data }) => {
+        setConnectionTestResult(data);
+        setIsConnectionModalOpen(true);
+        setConnectionStatuses(prev => ({ ...prev, [name]: data.status }));
+    },
+    onError: (error: any, name: string) => {
+        const responseData = error.response || error.message || "An unknown error occurred.";
+        setConnectionTestResult({ status: 'failed', data: responseData });
+        setIsConnectionModalOpen(true);
+        setConnectionStatuses(prev => ({ ...prev, [name]: 'failed' }));
+    }
+  });
+
+
+  const handleOpenAccountModal = (account: { name: string; url: string } | null = null) => {
+    if (account) {
+      setEditingAccount(account);
+      setAccountName(account.name);
+      setAccountUrl(account.url);
+    } else {
+      setEditingAccount(null);
+      setAccountName("");
+      setAccountUrl("");
+    }
+    setIsAccountModalOpen(true);
+  };
+
+  const handleSaveAccount = () => {
+    if (editingAccount) {
+      editAccountMutation.mutate({ oldName: editingAccount.name, newName: accountName, url: accountUrl });
+    } else {
+      addAccountMutation.mutate({ name: accountName, url: accountUrl });
+    }
+  };
+
+
+  // Send test email mutation
+  const sendTestEmailMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("POST", "/api/test-email", data);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Test Email Sent",
+        description: `Test email sent successfully at ${data.timestamp}`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to send test email.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Save template mutation
+  const saveTemplateMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const response = await apiRequest("POST", "/api/templates", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/templates"] });
+      toast({
+        title: "Template Saved",
+        description: "Email template has been saved successfully.",
+      });
+    },
+  });
+
+  // Clear results mutation
+  const clearResultsMutation = useMutation({
+    mutationFn: async (campaignId: string) => {
+      const response = await apiRequest(
+        "DELETE",
+        `/api/campaigns/${campaignId}/results`,
+      );
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["/api/campaigns", currentCampaignId, "results"],
+      });
+      toast({
+        title: "Results Cleared",
+        description: "Campaign results have been cleared.",
+      });
+    },
+  });
+
+  const sendSingleEmailMutation = useMutation({
+    mutationFn: (data: { campaignId: string, email: string }) =>
+      apiRequest("POST", `/api/campaigns/${data.campaignId}/send-email`, { email: data.email }),
+  });
 
   const processEmailsInBrowser = async (campaign: EmailCampaign) => {
-      // This is the main loop that sends emails one by one
       const remainingRecipients = campaign.recipients.slice(campaign.processedCount);
 
       if (campaign.status !== 'running' || remainingRecipients.length === 0) {
-        // Stop if the campaign is paused, stopped, or finished
         return;
       }
       
@@ -213,13 +376,8 @@ export default function Dashboard() {
 
       try {
         await sendSingleEmailMutation.mutateAsync({ campaignId: campaign.id, email: emailToSend });
-
-        // After a successful send, wait for the specified delay
         await new Promise(resolve => setTimeout(resolve, campaign.delayBetweenEmails * 1000));
         
-        // Then, invalidate the campaign query. This will cause the `useQuery` to refetch,
-        // which in turn will re-trigger the useEffect that runs this process.
-        // This creates a safe, state-driven loop.
         queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id] });
         queryClient.invalidateQueries({ queryKey: ["/api/campaigns", campaign.id, "results"] });
 
@@ -234,8 +392,6 @@ export default function Dashboard() {
       }
   };
   
-  // This useEffect is the driver for the sending process.
-  // It only runs when the `currentCampaign` data changes.
   useEffect(() => {
       if (currentCampaign && currentCampaign.status === 'running') {
           processEmailsInBrowser(currentCampaign);
@@ -249,7 +405,6 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       setCurrentCampaignId(newCampaign.id);
       toast({ title: "Campaign Created", description: "Starting campaign..." });
-      // Start the campaign, which will trigger the useEffect driver
       startCampaignMutation.mutate(newCampaign.id);
     },
     onError: (error: any) => {
@@ -261,8 +416,6 @@ export default function Dashboard() {
   const startCampaignMutation = useMutation({
     mutationFn: (campaignId: string) => apiRequest("POST", `/api/campaigns/${campaignId}/start`),
     onSuccess: (startedCampaign) => {
-      // Manually update the query cache with the "running" campaign.
-      // This will immediately trigger the useEffect driver to start sending emails.
       queryClient.setQueryData(["/api/campaigns", startedCampaign.id], startedCampaign);
       toast({ title: "Campaign Started", description: "Email campaign is now running." });
     },
@@ -287,10 +440,6 @@ export default function Dashboard() {
     },
   });
 
-    const sendSingleEmailMutation = useMutation({
-      mutationFn: (data: { campaignId: string, email: string }) =>
-        apiRequest("POST", `/api/campaigns/${data.campaignId}/send-email`, { email: data.email }),
-  });
 
     const handleCreateCampaign = () => {
     const { subject, recipients, htmlContent, delayBetweenEmails, batchSize } = currentFormData;
@@ -332,7 +481,6 @@ export default function Dashboard() {
     createCampaignMutation.mutate(campaignPayload);
   };
 
-  // ... (The rest of the component functions remain the same) ...
   const handleSendTestEmail = () => {
     const currentForm = formStates[selectedAccount] || {};
     if (!currentForm.testEmail || !currentForm.subject || !selectedAccount) {
