@@ -1,3 +1,4 @@
+// mohamedlmalki/zoho_flow_dash-pages/Zoho_Flow_Dash-pages-7af3500f1040941193f8e4fcb88162e46351b972/client/src/pages/dashboard.tsx
 import { useState, useEffect, useMemo, memo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,7 +50,8 @@ import {
   Edit,
   Loader2,
   XCircle,
-  Image as ImageIcon
+  Image as ImageIcon,
+  CheckCheck,
 } from "lucide-react";
 import { CampaignStats } from "@/components/CampaignStats";
 import { AnimatedCampaignStatus } from "@/components/AnimatedCampaignStatus";
@@ -163,6 +165,39 @@ export default function Dashboard() {
     return campaignMap;
   }, [allCampaigns, flowAccounts]);
 
+  // Test connection mutation
+  const testConnectionMutation = useMutation({
+    mutationFn: async (name: string) => {
+        setConnectionStatuses(prev => ({ ...prev, [name]: 'testing' }));
+        const response = await apiRequest("POST", "/api/flow-accounts/test-connection", { name });
+        return { name, data: await response.json() };
+    },
+    onSuccess: ({ name, data }) => {
+        setConnectionStatuses(prev => ({ ...prev, [name]: data.status }));
+    },
+    onError: (error: any, name: string) => {
+        setConnectionStatuses(prev => ({ ...prev, [name]: 'failed' }));
+    }
+  });
+
+  // Auto-test connection on account selection
+  useEffect(() => {
+    if (selectedAccount && connectionStatuses[selectedAccount] === 'unknown') {
+      testConnectionMutation.mutate(selectedAccount);
+    }
+  }, [selectedAccount, connectionStatuses]);
+
+  // Initialize connection statuses when accounts are loaded
+  useEffect(() => {
+    if (Object.keys(flowAccounts).length > 0) {
+      const initialStatuses = Object.keys(flowAccounts).reduce((acc, name) => {
+        acc[name] = 'unknown';
+        return acc;
+      }, {} as Record<string, 'unknown' | 'testing' | 'success' | 'failed'>);
+      setConnectionStatuses(initialStatuses);
+    }
+  }, [flowAccounts]);
+
 
   // Auto-select first account when accounts are loaded
   useEffect(() => {
@@ -190,12 +225,14 @@ export default function Dashboard() {
   });
 
   const accountMutationOptions = {
-    onSuccess: () => {
+    onSuccess: (data: any, variables: any) => {
+      const name = variables.newName || variables.name || accountName;
       queryClient.invalidateQueries({ queryKey: ["/api/flow-accounts"] });
       setIsAccountModalOpen(false);
       setEditingAccount(null);
       setAccountName("");
       setAccountUrl("");
+      testConnectionMutation.mutate(name); // Auto-test after add/edit
     },
     onError: (error: any) => {
       toast({
@@ -252,26 +289,6 @@ export default function Dashboard() {
       });
     },
   });
-
-  const testConnectionMutation = useMutation({
-    mutationFn: async (name: string) => {
-        setConnectionStatuses(prev => ({ ...prev, [name]: 'testing' }));
-        const response = await apiRequest("POST", "/api/flow-accounts/test-connection", { name });
-        return { name, data: await response.json() };
-    },
-    onSuccess: ({ name, data }) => {
-        setConnectionTestResult(data);
-        setIsConnectionModalOpen(true);
-        setConnectionStatuses(prev => ({ ...prev, [name]: data.status }));
-    },
-    onError: (error: any, name: string) => {
-        const responseData = error.response || error.message || "An unknown error occurred.";
-        setConnectionTestResult({ status: 'failed', data: responseData });
-        setIsConnectionModalOpen(true);
-        setConnectionStatuses(prev => ({ ...prev, [name]: 'failed' }));
-    }
-  });
-
 
   const handleOpenAccountModal = (account: { name: string; url: string } | null = null) => {
     if (account) {
@@ -437,6 +454,28 @@ export default function Dashboard() {
     },
   });
 
+  // NEW: Clear completed campaigns mutation
+  const clearCompletedCampaignsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/campaigns/clear-completed");
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      toast({
+        title: "Cleanup Complete",
+        description: "Completed and stopped campaigns have been cleared.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Cleanup Failed",
+        description: error.message || "An unknown error occurred.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleCreateCampaign = () => {
     const currentForm = formStates[selectedAccount] || {};
     if (
@@ -597,26 +636,26 @@ export default function Dashboard() {
   const renderConnectionStatus = () => {
     const status = connectionStatuses[selectedAccount] || 'unknown';
 
-    if (status === 'testing') {
-        return <Loader2 className="h-4 w-4 animate-spin" />;
+    if (status === 'testing' || status === 'unknown') {
+        return <Loader2 className="h-4 w-4 animate-spin text-gray-400" />;
     }
-
-    if (status === 'failed') {
+    if (status === 'success') {
         return (
-            <div className="flex items-center space-x-2 bg-red-100 px-3 py-1 rounded-full">
-                <XCircle className="text-red-600" size={14} />
-                <span className="text-red-600 text-xs font-medium">Failed</span>
+            <div className="flex items-center space-x-2 bg-green-100 px-3 py-1 rounded-full">
+                <CheckCircle className="text-green-700" size={14} />
+                <span className="text-green-700 text-xs font-medium">Connected</span>
             </div>
         );
     }
-
-    // Default and success state
-    return (
-        <div className="flex items-center space-x-2 bg-[hsl(142,76%,94%)] px-3 py-1 rounded-full">
-            <CheckCircle className="text-[hsl(142,76%,36%)]" size={14} />
-            <span className="text-[hsl(142,76%,36%)] text-xs font-medium">Connected</span>
-        </div>
-    );
+    if (status === 'failed') {
+        return (
+            <div className="flex items-center space-x-2 bg-red-100 px-3 py-1 rounded-full">
+                <XCircle className="text-red-700" size={14} />
+                <span className="text-red-700 text-xs font-medium">Failed</span>
+            </div>
+        );
+    }
+    return null;
   };
 
 
@@ -723,7 +762,7 @@ export default function Dashboard() {
                             size="sm"
                             className="text-[hsl(215,16%,47%)]"
                             onClick={() => selectedAccount && testConnectionMutation.mutate(selectedAccount)}
-                            disabled={testConnectionMutation.isPending}
+                            disabled={testConnectionMutation.isPending || !selectedAccount}
                         >
                             {renderConnectionStatus()}
                         </Button>
@@ -1043,14 +1082,33 @@ export default function Dashboard() {
                     Sending Results
                   </CardTitle>
                   <div className="flex items-center space-x-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs border-[hsl(214,32%,91%)]"
-                    >
-                      <Download size={14} className="mr-1" />
-                      Export
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                         <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs border-[hsl(142,76%,36%)] text-[hsl(142,76%,36%)]"
+                          disabled={clearCompletedCampaignsMutation.isPending}
+                        >
+                          <CheckCheck size={14} className="mr-1" />
+                          Clear Completed
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will permanently delete all 'completed' and 'stopped' campaigns and their results. This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => clearCompletedCampaignsMutation.mutate()}>
+                            Confirm
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                     <Button
                       variant="outline"
                       size="sm"
@@ -1061,7 +1119,7 @@ export default function Dashboard() {
                       className="text-xs border-[hsl(0,84%,60%)] text-[hsl(0,84%,60%)]"
                     >
                       <Trash2 size={14} className="mr-1" />
-                      Clear
+                      Clear Current
                     </Button>
                   </div>
                 </div>

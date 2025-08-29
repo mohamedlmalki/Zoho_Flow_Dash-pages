@@ -1,3 +1,4 @@
+// mohamedlmalki/zoho_flow_dash-pages/Zoho_Flow_Dash-pages-7af3500f1040941193f8e4fcb88162e46351b972/client/src/components/CampaignStats.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,9 +54,13 @@ export const CampaignStats: React.FC<CampaignStatsProps> = ({
   const [animatedProcessed, setAnimatedProcessed] = useState(0);
   const animationFrameRef = useRef<number>();
 
+  // ** THE FIX IS HERE **
+  // We now base the processed count on the length of the results array
+  const actualProcessedCount = campaignResults.length;
+
   useEffect(() => {
     if (currentCampaign) {
-      const targetProcessed = currentCampaign.processedCount;
+      const targetProcessed = actualProcessedCount;
       const startProcessed = animatedProcessed;
 
       if (targetProcessed === startProcessed) {
@@ -91,15 +96,15 @@ export const CampaignStats: React.FC<CampaignStatsProps> = ({
         }
       };
     }
-  }, [currentCampaign?.processedCount, currentCampaign?.status]);
+  }, [actualProcessedCount, currentCampaign?.status]);
 
   useEffect(() => {
     if (currentCampaign) {
-      setAnimatedProcessed(currentCampaign.processedCount);
+      setAnimatedProcessed(actualProcessedCount);
     } else {
       setAnimatedProcessed(0);
     }
-  }, [currentCampaign?.id]);
+  }, [currentCampaign?.id, actualProcessedCount]);
 
 
   if (!currentCampaign) {

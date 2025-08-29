@@ -1,5 +1,7 @@
+// mohamedlmalki/zoho_flow_dash-pages/Zoho_Flow_Dash-pages-7af3500f1040941193f8e4fcb88162e46351b972/client/src/components/AnimatedCampaignStatus.tsx
 import React, { useState, useEffect, useRef, memo } from 'react';
-import type { EmailCampaign } from "@shared/schema";
+import type { EmailCampaign, EmailResult } from "@shared/schema";
+import { useQuery } from '@tanstack/react-query';
 
 // Helper component for campaign status indicator
 const CampaignStatusBadge = ({ status }: { status: string }) => {
@@ -19,11 +21,22 @@ const CampaignStatusBadge = ({ status }: { status: string }) => {
 
 // This is a memoized component, meaning it will only re-render if its `campaign` prop changes.
 export const AnimatedCampaignStatus = memo(({ campaign }: { campaign: EmailCampaign }) => {
-    const [animatedProcessed, setAnimatedProcessed] = useState(campaign.processedCount);
+    
+    // ** THE FIX IS HERE **
+    // We now fetch the results for this specific campaign to get the accurate count
+    const { data: campaignResults = [] } = useQuery<EmailResult[]>({
+        queryKey: ["/api/campaigns", campaign.id, "results"],
+        enabled: !!campaign.id,
+        refetchInterval: campaign.status === 'running' ? 2000 : false,
+    });
+    
+    const actualProcessedCount = campaignResults.length;
+
+    const [animatedProcessed, setAnimatedProcessed] = useState(actualProcessedCount);
     const animationFrameRef = useRef<number>();
 
     useEffect(() => {
-        const targetProcessed = campaign.processedCount;
+        const targetProcessed = actualProcessedCount;
         const startProcessed = animatedProcessed;
 
         if (targetProcessed === startProcessed) return;
@@ -55,12 +68,12 @@ export const AnimatedCampaignStatus = memo(({ campaign }: { campaign: EmailCampa
                 cancelAnimationFrame(animationFrameRef.current);
             }
         };
-    }, [campaign.processedCount, campaign.status]);
+    }, [actualProcessedCount, campaign.status]);
     
     // Reset animation when the campaign ID changes
     useEffect(() => {
-        setAnimatedProcessed(campaign.processedCount);
-    }, [campaign.id]);
+        setAnimatedProcessed(actualProcessedCount);
+    }, [campaign.id, actualProcessedCount]);
 
 
     return (

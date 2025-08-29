@@ -1,3 +1,4 @@
+// mohamedlmalki/zoho_flow_dash-pages/Zoho_Flow_Dash-pages-7af3500f1040941193f8e4fcb88162e46351b972/client/src/pages/single-email.tsx
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,6 +85,39 @@ export default function SingleEmail() {
   const { data: flowAccounts = {} } = useQuery<Record<string, string>>({
     queryKey: ['/api/flow-accounts'],
   });
+  
+  // Test connection mutation
+  const testConnectionMutation = useMutation({
+    mutationFn: async (name: string) => {
+        setConnectionStatuses(prev => ({ ...prev, [name]: 'testing' }));
+        const response = await apiRequest("POST", "/api/flow-accounts/test-connection", { name });
+        return { name, data: await response.json() };
+    },
+    onSuccess: ({ name, data }) => {
+        setConnectionStatuses(prev => ({ ...prev, [name]: data.status }));
+    },
+    onError: (error: any, name: string) => {
+        setConnectionStatuses(prev => ({ ...prev, [name]: 'failed' }));
+    }
+  });
+
+  // Auto-test connection on account selection
+  useEffect(() => {
+    if (formData.flowAccount && connectionStatuses[formData.flowAccount] === 'unknown') {
+      testConnectionMutation.mutate(formData.flowAccount);
+    }
+  }, [formData.flowAccount, connectionStatuses]);
+
+  // Initialize connection statuses when accounts are loaded
+  useEffect(() => {
+    if (Object.keys(flowAccounts).length > 0) {
+      const initialStatuses = Object.keys(flowAccounts).reduce((acc, name) => {
+        acc[name] = 'unknown';
+        return acc;
+      }, {} as Record<string, 'unknown' | 'testing' | 'success' | 'failed'>);
+      setConnectionStatuses(initialStatuses);
+    }
+  }, [flowAccounts]);
 
   // Auto-select first account when accounts are loaded
   useEffect(() => {
@@ -99,12 +133,14 @@ export default function SingleEmail() {
   });
 
   const accountMutationOptions = {
-    onSuccess: () => {
+    onSuccess: (data: any, variables: any) => {
+      const name = variables.newName || variables.name || accountName;
       queryClient.invalidateQueries({ queryKey: ["/api/flow-accounts"] });
       setIsAccountModalOpen(false);
       setEditingAccount(null);
       setAccountName("");
       setAccountUrl("");
+      testConnectionMutation.mutate(name); // Auto-test after add/edit
     },
     onError: (error: any) => {
       toast({
@@ -160,25 +196,6 @@ export default function SingleEmail() {
         variant: "destructive",
       });
     },
-  });
-
-  const testConnectionMutation = useMutation({
-    mutationFn: async (name: string) => {
-        setConnectionStatuses(prev => ({ ...prev, [name]: 'testing' }));
-        const response = await apiRequest("POST", "/api/flow-accounts/test-connection", { name });
-        return { name, data: await response.json() };
-    },
-    onSuccess: ({ name, data }) => {
-        setConnectionTestResult(data);
-        setIsConnectionModalOpen(true);
-        setConnectionStatuses(prev => ({ ...prev, [name]: data.status }));
-    },
-    onError: (error: any, name: string) => {
-        const responseData = error.response || error.message || "An unknown error occurred.";
-        setConnectionTestResult({ status: 'failed', data: responseData });
-        setIsConnectionModalOpen(true);
-        setConnectionStatuses(prev => ({ ...prev, [name]: 'failed' }));
-    }
   });
 
   const handleOpenAccountModal = (account: { name: string; url: string } | null = null) => {
@@ -344,26 +361,26 @@ export default function SingleEmail() {
   const renderConnectionStatus = () => {
     const status = connectionStatuses[formData.flowAccount] || 'unknown';
 
-    if (status === 'testing') {
-        return <Loader2 className="h-4 w-4 animate-spin" />;
+    if (status === 'testing' || status === 'unknown') {
+        return <Loader2 className="h-4 w-4 animate-spin text-gray-400" />;
     }
-
-    if (status === 'failed') {
+    if (status === 'success') {
         return (
-            <div className="flex items-center space-x-2 bg-red-100 px-3 py-1 rounded-full">
-                <XCircle className="text-red-600" size={14} />
-                <span className="text-red-600 text-xs font-medium">Failed</span>
+            <div className="flex items-center space-x-2 bg-green-100 px-3 py-1 rounded-full">
+                <CheckCircle className="text-green-700" size={14} />
+                <span className="text-green-700 text-xs font-medium">Connected</span>
             </div>
         );
     }
-
-    // Default and success state
-    return (
-        <div className="flex items-center space-x-2 bg-[hsl(142,76%,94%)] px-3 py-1 rounded-full">
-            <CheckCircle className="text-[hsl(142,76%,36%)]" size={14} />
-            <span className="text-[hsl(142,76%,36%)] text-xs font-medium">Connected</span>
-        </div>
-    );
+    if (status === 'failed') {
+        return (
+            <div className="flex items-center space-x-2 bg-red-100 px-3 py-1 rounded-full">
+                <XCircle className="text-red-700" size={14} />
+                <span className="text-red-700 text-xs font-medium">Failed</span>
+            </div>
+        );
+    }
+    return null;
   };
 
   return (
@@ -443,7 +460,7 @@ export default function SingleEmail() {
                             size="sm"
                             className="text-[hsl(215,16%,47%)]"
                             onClick={() => formData.flowAccount && testConnectionMutation.mutate(formData.flowAccount)}
-                            disabled={testConnectionMutation.isPending}
+                            disabled={testConnectionMutation.isPending || !formData.flowAccount}
                         >
                             {renderConnectionStatus()}
                         </Button>

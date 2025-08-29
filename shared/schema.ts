@@ -1,3 +1,4 @@
+// mohamedlmalki/zoho_flow_dash-pages/Zoho_Flow_Dash-pages-7af3500f1040941193f8e4fcb88162e46351b972/shared/schema.ts
 import { sql } from "drizzle-orm";
 import { pgTable, text, varchar, integer, boolean, jsonb, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
@@ -7,6 +8,13 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+});
+
+// New table for Zoho Flow accounts
+export const flowAccounts = pgTable("flow_accounts", {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    name: text("name").notNull().unique(),
+    url: text("url").notNull(),
 });
 
 export const emailTemplates = pgTable("email_templates", {
@@ -77,3 +85,6 @@ export type InsertEmailCampaign = z.infer<typeof insertEmailCampaignSchema>;
 
 export type EmailResult = typeof emailResults.$inferSelect;
 export type InsertEmailResult = z.infer<typeof insertEmailResultSchema>;
+
+export type FlowAccount = typeof flowAccounts.$inferSelect;
+export type InsertFlowAccount = z.infer<typeof createInsertSchema<typeof flowAccounts>>;
