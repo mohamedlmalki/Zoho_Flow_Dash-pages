@@ -207,6 +207,144 @@ export default function Dashboard() {
         setConnectionStatuses(prev => ({ ...prev, [name]: 'failed' }));
     }
   });
+  
+    const sendTestEmailMutation = useMutation({
+        mutationFn: (data: any) => apiRequest('POST', '/api/test-email', data),
+        onSuccess: () => {
+            toast({
+                title: 'Test Email Sent',
+                description: 'Your test email has been sent successfully.',
+            });
+        },
+        onError: (error: any) => {
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to send test email.',
+                variant: 'destructive',
+            });
+        },
+    });
+
+    const clearResultsMutation = useMutation({
+        mutationFn: (campaignId: string) =>
+            apiRequest('DELETE', `/api/campaigns/${campaignId}/results`),
+        onSuccess: (_, campaignId) => {
+            queryClient.invalidateQueries({ queryKey: ['/api/campaigns', campaignId, 'results'] });
+            toast({
+                title: 'Results Cleared',
+                description: 'The campaign results have been cleared.',
+            });
+        },
+        onError: (error: any) => {
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to clear results.',
+                variant: 'destructive',
+            });
+        },
+    });
+	
+    const saveTemplateMutation = useMutation({
+        mutationFn: (data: any) => apiRequest('POST', '/api/templates', data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['/api/templates'] });
+            toast({
+                title: 'Template Saved',
+                description: 'Your email template has been saved.',
+            });
+        },
+        onError: (error: any) => {
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to save template.',
+                variant: 'destructive',
+            });
+        },
+    });
+
+    const addAccountMutation = useMutation({
+        mutationFn: (data: any) => apiRequest('POST', '/api/flow-accounts', data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['/api/flow-accounts'] });
+            setIsAccountModalOpen(false);
+            setAccountName('');
+            setAccountUrl('');
+            toast({
+                title: 'Account Added',
+                description: 'The new account has been added successfully.',
+            });
+        },
+        onError: (error: any) => {
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to add account.',
+                variant: 'destructive',
+            });
+        },
+    });
+
+    const editAccountMutation = useMutation({
+        mutationFn: (data: any) =>
+            apiRequest('PUT', `/api/flow-accounts/${editingAccount?.name}`, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['/api/flow-accounts'] });
+            setIsAccountModalOpen(false);
+            setEditingAccount(null);
+            setAccountName('');
+            setAccountUrl('');
+            toast({
+                title: 'Account Updated',
+                description: 'The account has been updated successfully.',
+            });
+        },
+        onError: (error: any) => {
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to update account.',
+                variant: 'destructive',
+            });
+        },
+    });
+
+    const deleteAccountMutation = useMutation({
+        mutationFn: (name: string) =>
+            apiRequest('DELETE', `/api/flow-accounts/${name}`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['/api/flow-accounts'] });
+            toast({
+                title: 'Account Deleted',
+                description: 'The account has been deleted successfully.',
+            });
+        },
+        onError: (error: any) => {
+            toast({
+                title: 'Error',
+                description: error.message || 'Failed to delete account.',
+                variant: 'destructive',
+            });
+        },
+    });
+	
+    const handleOpenAccountModal = (account: { name: string; url: string } | null = null) => {
+        if (account) {
+            setEditingAccount(account);
+            setAccountName(account.name);
+            setAccountUrl(account.url);
+        } else {
+            setEditingAccount(null);
+            setAccountName('');
+            setAccountUrl('');
+        }
+        setIsAccountModalOpen(true);
+    };
+
+    const handleSaveAccount = () => {
+        if (editingAccount) {
+            editAccountMutation.mutate({ newName: accountName, url: accountUrl });
+        } else {
+            addAccountMutation.mutate({ name: accountName, url: accountUrl });
+        }
+    };
 
     const processEmailsInBrowser = async (campaign: EmailCampaign) => {
         if (isProcessing.current) return; 

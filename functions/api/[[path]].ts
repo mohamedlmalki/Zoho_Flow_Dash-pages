@@ -179,7 +179,7 @@ app.post('/campaigns/:id/send-email', async (c) => {
 });
 
 // Test email route
-app.post('/api/test-email', async (c) => {
+app.post('/test-email', async (c) => {
     const { email, subject, htmlContent, flowAccount } = await c.req.json();
     const accounts = await readFlowAccounts(c);
     const webhookUrl = accounts[flowAccount];
