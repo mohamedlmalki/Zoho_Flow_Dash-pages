@@ -2,7 +2,6 @@
 import { Hono } from 'hono';
 import { DBStorage } from './lib/db';
 import { insertEmailTemplateSchema, insertEmailCampaignSchema } from '../shared/schema';
-import axios from 'axios';
 
 type Bindings = {
   DATABASE_URL: string;
@@ -25,7 +24,6 @@ app.post('/api/flow-accounts', async (c) => {
     await storage.createFlowAccount({ name, url });
     return c.json(await storage.getFlowAccounts(), 201);
 });
-// ... all other app.get/post/put/delete routes
 app.put('/api/flow-accounts/:name', async (c) => {
     const storage = c.get('storage');
     const name = c.req.param('name');
@@ -46,9 +44,15 @@ app.post('/api/flow-accounts/test-connection', async (c) => {
     const url = accounts[name];
     if (!url) return c.json({ message: 'Account not found.' }, 404);
     try {
-        const res = await axios.post(url, { test: 'connection test' }, { headers: { 'Content-Type': 'application/json' }, timeout: 10000 });
-        return c.json({ status: 'success', data: res.data });
-    } catch (e) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ test: 'connection test' })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(JSON.stringify(data));
+        return c.json({ status: 'success', data: data });
+    } catch (e: any) {
         return c.json({ status: 'failed', data: e.message }, 500);
     }
 });
@@ -80,11 +84,11 @@ app.post('/api/test-email', async (c) => {
     const url = accounts[flowAccount];
     if (!url) return c.json({ message: 'Invalid flow account' }, 400);
     const payload = { senderEmail: email, emailSubject: subject, emailDescription: htmlContent };
-    const res = await axios.post(url, payload, { headers: { 'Content-Type': 'application/json' } });
-    return c.json({ message: 'Test email sent', timestamp: new Date().toLocaleTimeString(), response: res.data });
+    const response = await fetch(url, { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' }});
+    return c.json({ message: 'Test email sent', timestamp: new Date().toLocaleTimeString(), response: await response.json() });
 });
 
-// ... scheduled function logic ...
+// --- Cron Trigger Logic ---
 async function processSingleEmail(storage: DBStorage, campaignId: string) {
     const campaign = await storage.getEmailCampaign(campaignId);
     if (!campaign || campaign.status !== 'running' || campaign.processedCount >= campaign.recipients.length) {
@@ -102,7 +106,8 @@ async function processSingleEmail(storage: DBStorage, campaignId: string) {
     }
     try {
         const payload = { senderEmail: email, emailSubject: campaign.subject, emailDescription: campaign.htmlContent };
-        await axios.post(zohoWebhookUrl, payload, { headers: { 'Content-Type': 'application/json' } });
+        const response = await fetch(zohoWebhookUrl, { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' }});
+        if (!response.ok) throw new Error(`Webhook failed with status ${response.status}`);
         await storage.createEmailResult({ campaignId, email, status: 'success', response: 'Success' });
         await storage.updateEmailCampaign(campaignId, {
             processedCount: campaign.processedCount + 1,
@@ -121,7 +126,7 @@ export default {
     fetch: app.fetch,
     async scheduled(event: ScheduledEvent, env: Bindings, ctx: ExecutionContext): Promise<void> {
         const storage = new DBStorage(env.DATABASE_URL);
-        const runningCampaigns = await storage.getEmailCampaigns().then(campaigns =>
+        const runningCampaigns = await storage.getEmailCampaigns().then(campaigns => 
           campaigns.filter(c => c.status === 'running')
         );
 
