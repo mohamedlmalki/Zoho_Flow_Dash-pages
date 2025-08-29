@@ -82,7 +82,7 @@ const initialFormData: FormData = {
 export default function Dashboard() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const isProcessing = useRef(false); // Prevents multiple loops from running
+  const isProcessing = useRef(false);
 
   const [formStates, setFormStates] = useState<Record<string, Partial<FormData>>>({});
   const [selectedAccount, setSelectedAccount] = useState<string>("");
@@ -189,8 +189,27 @@ export default function Dashboard() {
     queryKey: ["/api/templates"],
   });
 
+  const testConnectionMutation = useMutation({
+    mutationFn: async (name: string) => {
+        setConnectionStatuses(prev => ({ ...prev, [name]: 'testing' }));
+        const response = await apiRequest("POST", "/api/flow-accounts/test-connection", { name });
+        return { name, data: await response.json() };
+    },
+    onSuccess: ({ name, data }) => {
+        setConnectionTestResult(data);
+        setIsConnectionModalOpen(true);
+        setConnectionStatuses(prev => ({ ...prev, [name]: data.status }));
+    },
+    onError: (error: any, name: string) => {
+        const responseData = error.response || error.message || "An unknown error occurred.";
+        setConnectionTestResult({ status: 'failed', data: responseData });
+        setIsConnectionModalOpen(true);
+        setConnectionStatuses(prev => ({ ...prev, [name]: 'failed' }));
+    }
+  });
+
     const processEmailsInBrowser = async (campaign: EmailCampaign) => {
-        if (isProcessing.current) return; // Prevent multiple loops
+        if (isProcessing.current) return; 
         isProcessing.current = true;
 
         const remainingRecipients = campaign.recipients.slice(campaign.processedCount);
@@ -292,8 +311,84 @@ export default function Dashboard() {
         sendTestEmailMutation.mutate({ email: currentFormData.testEmail, subject: currentFormData.subject, htmlContent: currentFormData.htmlContent, flowAccount: selectedAccount });
     };
     
-    // ... (The rest of the component remains the same) ...
-    // ... (The JSX part of the component remains the same) ...
+    const handleSaveTemplate = () => {
+        const { subject, recipients, htmlContent, delayBetweenEmails, batchSize } = currentFormData;
+        if (!subject || !selectedAccount) {
+            toast({ title: "Missing Information", description: "Please fill in a subject and select an account.", variant: "destructive" });
+            return;
+        }
+        const templateName = prompt("Enter template name:");
+        if (!templateName) return;
+        saveTemplateMutation.mutate({ name: templateName, subject, htmlContent, flowAccount: selectedAccount, delayBetweenEmails, batchSize });
+    };
+
+    const handleLoadTemplate = (template: EmailTemplate) => {
+        setSelectedAccount(template.flowAccount);
+        setFormStates(prev => ({
+            ...prev,
+            [template.flowAccount]: {
+                ...prev[template.flowAccount],
+                subject: template.subject,
+                htmlContent: template.htmlContent,
+                delayBetweenEmails: template.delayBetweenEmails,
+                batchSize: template.batchSize,
+            }
+        }));
+        toast({ title: "Template Loaded", description: `Template "${template.name}" has been loaded.` });
+    };
+
+    const handleViewResponse = (result: EmailResult) => {
+        setSelectedResult(result);
+        setIsViewModalOpen(true);
+    };
+
+    const handleInsertImage = () => {
+        if (!imageUrl) {
+            toast({ title: "Image URL is required", variant: "destructive" });
+            return;
+        }
+        let imgTag = `<img src="${imageUrl}" alt=""`;
+        if (imageWidth) imgTag += ` width="${imageWidth}"`;
+        if (imageHeight) imgTag += ` height="${imageHeight}"`;
+        imgTag += ' style="border:0; display:block; outline:none; text-decoration:none; height:auto; width:100%; max-width:100%;" />';
+        let linkedImage = imageLink ? `<a href="${imageLink}" target="_blank">${imgTag}</a>` : imgTag;
+        let finalHtml = linkedImage;
+        if (imageAlign !== 'left') { 
+            finalHtml = `<div align="${imageAlign}">${linkedImage}</div>`
+        }
+        handleFormChange('htmlContent', (currentFormData.htmlContent || '') + '\n' + finalHtml);
+        setIsImageModalOpen(false);
+        setImageUrl('');
+        setImageLink('');
+        setImageWidth('');
+        setImageHeight('');
+        setImageAlign('center');
+    };
+
+    const recipientEmails = currentFormData.recipients.split("\n").map((email) => email.trim()).filter((email) => email);
+    const validEmails = recipientEmails.filter((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+    const invalidEmails = recipientEmails.filter((email) => email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+    const duplicateEmails = recipientEmails.filter((email, index, arr) => email && arr.indexOf(email) !== index);
+    const uniqueDuplicates = Array.from(new Set(duplicateEmails));
+    const isJobFinished = currentCampaign?.status === 'completed' || currentCampaign?.status === 'stopped';
+    const showCreateButton = !currentCampaignId || isJobFinished;
+
+    const renderConnectionStatus = () => {
+        const status = connectionStatuses[selectedAccount] || 'unknown';
+        if (status === 'testing') return <Loader2 className="h-4 w-4 animate-spin" />;
+        if (status === 'failed') return (
+            <div className="flex items-center space-x-2 bg-red-100 px-3 py-1 rounded-full">
+                <XCircle className="text-red-600" size={14} />
+                <span className="text-red-600 text-xs font-medium">Failed</span>
+            </div>
+        );
+        return (
+            <div className="flex items-center space-x-2 bg-[hsl(142,76%,94%)] px-3 py-1 rounded-full">
+                <CheckCircle className="text-[hsl(142,76%,36%)]" size={14} />
+                <span className="text-[hsl(142,76%,36%)] text-xs font-medium">Connected</span>
+            </div>
+        );
+    };
     
     return (
     <div className="min-h-screen bg-[hsl(0,0%,98%)]">
