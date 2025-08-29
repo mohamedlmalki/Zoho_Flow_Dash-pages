@@ -1,0 +1,3 @@
+# wrangler.toml
+name = "zoho-flow-dash"
+pages_build_output_dir = "dist"
