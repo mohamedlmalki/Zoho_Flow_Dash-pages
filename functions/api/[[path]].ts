@@ -1,6 +1,7 @@
 // functions/api/[[path]].ts
 import { Hono } from 'hono';
 import type { PagesFunction } from '@cloudflare/workers-types';
+import { ZodError } from 'zod';
 
 import { insertEmailTemplateSchema, insertEmailCampaignSchema } from '../../shared/schema';
 import axios from 'axios';
@@ -38,6 +39,7 @@ app.get('/flow-accounts', async (c) => {
     const accounts = await readFlowAccounts(c);
     return c.json(accounts);
   } catch (err: any) {
+    console.error("Error reading flow accounts:", err);
     return c.json({ message: "Server configuration error reading accounts.", error: err.message }, 500);
   }
 });
@@ -54,8 +56,10 @@ app.post('/flow-accounts', async (c) => {
     }
     accounts[name] = url;
     await writeFlowAccounts(c, accounts);
+    console.log(`Added new flow account: ${name}`);
     return c.json(accounts, 201);
   } catch (err: any) {
+    console.error("Error saving flow account:", err);
     return c.json({ message: "Could not save account.", error: err.message }, 500);
   }
 });
@@ -85,8 +89,10 @@ app.put('/flow-accounts/:name', async (c) => {
         
         accounts[finalName] = url;
         await writeFlowAccounts(c, accounts);
+        console.log(`Updated flow account: ${name} -> ${finalName}`);
         return c.json(accounts);
     } catch (err: any) {
+        console.error("Error updating flow account:", err);
         return c.json({ message: "Could not update account.", error: err.message }, 500);
     }
 });
@@ -100,8 +106,10 @@ app.delete('/flow-accounts/:name', async (c) => {
         }
         delete accounts[name];
         await writeFlowAccounts(c, accounts);
+        console.log(`Deleted flow account: ${name}`);
         return c.json(accounts);
     } catch (err: any) {
+        console.error("Error deleting flow account:", err);
         return c.json({ message: "Could not delete account.", error: err.message }, 500);
     }
 });
@@ -116,6 +124,7 @@ app.post('/flow-accounts/test-connection', async (c) => {
     }
 
     try {
+        console.log(`Testing connection for account: ${name}`);
         const response = await axios.post(url, {
             test: 'connection test',
             timestamp: new Date().toISOString(),
@@ -123,9 +132,11 @@ app.post('/flow-accounts/test-connection', async (c) => {
             headers: { 'Content-Type': 'application/json' },
             timeout: 10000
         });
+        console.log(`Connection test for ${name} successful.`);
         return c.json({ status: 'success', data: response.data });
     } catch (error: any) {
         const errorMessage = error.response ? error.response.data : error.message;
+        console.error(`Connection test for ${name} failed:`, errorMessage);
         return c.json({ status: 'failed', data: errorMessage }, 500);
     }
 });
@@ -145,8 +156,14 @@ app.post('/templates', async (c) => {
         const newTemplate = { ...templateData, id };
 
         await c.env.CAMPAIGNS.put(id, JSON.stringify(newTemplate));
+        console.log(`Created new template: ${newTemplate.name}`);
         return c.json(newTemplate, 201);
     } catch (error: any) {
+        if (error instanceof ZodError) {
+          console.error("Zod validation error creating template:", error.errors);
+          return c.json({ message: "Invalid template data.", error: error.flatten() }, 400);
+        }
+        console.error("Error creating template:", error);
         return c.json({ message: "Invalid template data.", error: error }, 400);
     }
 });
@@ -161,23 +178,38 @@ app.get('/campaigns', async (c) => {
 
 app.post('/campaigns', async (c) => {
     try {
-        const campaignData = insertEmailCampaignSchema.parse(await c.req.json());
+        const body = await c.req.json();
+        console.log("Received payload to create campaign:", JSON.stringify(body, null, 2));
+
+        const campaignData = insertEmailCampaignSchema.parse(body);
         const id = `campaign-${crypto.randomUUID()}`;
         const newCampaign = {
             ...campaignData,
             id,
-            status: "draft",
+            status: "draft", // Explicitly set status
             processedCount: 0,
             successCount: 0,
             failedCount: 0,
             createdAt: new Date().toISOString()
         };
+
         await c.env.CAMPAIGNS.put(id, JSON.stringify(newCampaign));
+        console.log(`Successfully created campaign: ${newCampaign.name} (ID: ${id})`);
         return c.json(newCampaign, 201);
     } catch (error: any) {
-        return c.json({ message: "Invalid campaign data.", error: error }, 400);
+        if (error instanceof ZodError) {
+            console.error("Zod validation error creating campaign:", error.errors);
+            const formattedError = error.flatten();
+            return c.json({
+                message: "Invalid campaign data. Please check the fields.",
+                error: formattedError.fieldErrors
+            }, 400);
+        }
+        console.error("Generic error creating campaign:", error);
+        return c.json({ message: "Invalid campaign data.", error: error.message }, 400);
     }
 });
+
 
 app.get('/campaigns/:id', async (c) => {
     const { id } = c.req.param();
@@ -196,6 +228,7 @@ app.post('/campaigns/:id/start', async (c) => {
     }
     campaign.status = 'running';
     await c.env.CAMPAIGNS.put(id, JSON.stringify(campaign));
+    console.log(`Started campaign: ${id}`);
     return c.json(campaign);
 });
 
@@ -207,6 +240,7 @@ app.post('/campaigns/:id/pause', async (c) => {
     }
     campaign.status = 'paused';
     await c.env.CAMPAIGNS.put(id, JSON.stringify(campaign));
+    console.log(`Paused campaign: ${id}`);
     return c.json(campaign);
 });
 
@@ -218,10 +252,13 @@ app.post('/campaigns/:id/stop', async (c) => {
     }
     campaign.status = 'stopped';
     await c.env.CAMPAIGNS.put(id, JSON.stringify(campaign));
+    console.log(`Stopped campaign: ${id}`);
     return c.json(campaign);
 });
 
 app.get('/campaigns/:id/results', async (c) => {
+    // This needs a more robust implementation for production,
+    // as KV list is not ideal for large datasets.
     return c.json([]); 
 });
 
@@ -239,10 +276,12 @@ app.post('/campaigns/:id/send-email', async (c) => {
     const accounts = await readFlowAccounts(c);
     const webhookUrl = accounts[campaign.flowAccount];
     if (!webhookUrl) {
+        console.error(`Webhook URL not found for flow account: ${campaign.flowAccount}`);
         return c.json({ message: 'Webhook URL not found' }, 500);
     }
 
     try {
+        console.log(`Sending email to ${email} for campaign ${id}`);
         await axios.post(webhookUrl, {
             senderEmail: email,
             emailSubject: campaign.subject,
@@ -256,6 +295,7 @@ app.post('/campaigns/:id/send-email', async (c) => {
 
         return c.json({ status: 'success' });
     } catch (error) {
+        console.error(`Failed to send email to ${email} for campaign ${id}:`, error);
         campaign.processedCount += 1;
         campaign.failedCount += 1;
         await c.env.CAMPAIGNS.put(id, JSON.stringify(campaign));

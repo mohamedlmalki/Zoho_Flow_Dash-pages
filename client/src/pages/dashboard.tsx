@@ -379,9 +379,10 @@ export default function Dashboard() {
       startCampaignMutation.mutate(campaign.id);
     },
     onError: (error: any) => {
+      const errorMessage = error.response?.error ? JSON.stringify(error.response.error) : (error.response?.message || error.message || "An unknown error occurred.");
       toast({
         title: "Error Creating Campaign",
-        description: error.response?.message || error.message || "An unknown error occurred.",
+        description: errorMessage,
         variant: "destructive",
       });
     },
@@ -488,7 +489,7 @@ export default function Dashboard() {
       return;
     }
 
-    createCampaignMutation.mutate({
+    const campaignPayload = {
       name: `Campaign - ${subject}`,
       subject,
       htmlContent,
@@ -496,7 +497,12 @@ export default function Dashboard() {
       recipients: recipientList,
       delayBetweenEmails,
       batchSize,
-    });
+      status: 'draft', // Add the status field here
+    };
+
+    console.log("Creating campaign with payload:", JSON.stringify(campaignPayload, null, 2));
+
+    createCampaignMutation.mutate(campaignPayload);
   };
 
   const handleSendTestEmail = () => {
